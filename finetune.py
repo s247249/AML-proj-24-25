@@ -44,19 +44,19 @@ model.to(device)
 dataset_train = get_dataset(
   "MNISTVal", preprocess=model.train_preprocess,
   location=args.data_location, batch_size=32, num_workers=2)
-train_loader = get_dataloader(dataset, is_train=True, args=args)
+train_loader = get_dataloader(dataset_train, is_train=True, args=args)
 
 # Obtain the Validation split of the "MNIST" dataset
 dataset_val = get_dataset(
   "MNISTVal", preprocess=model.val_preprocess,
   location=args.data_location, batch_size=32, num_workers=2)
-val_loader = get_dataloader(dataset, is_train=False, args=args)
+val_loader = get_dataloader(dataset_val, is_train=False, args=args)
 
 # Obtain the Test split of the "MNIST" dataset
 dataset_test = get_dataset(
   "MNIST", preprocess=model.val_preprocess,
   location=args.data_location, batch_size=32, num_workers=2)
-test_loader = get_dataloader(dataset, is_train=False, args=args)
+test_loader = get_dataloader(dataset_test, is_train=False, args=args)
 
 # Loss function
 criterion = nn.CrossEntropyLoss()
