@@ -69,4 +69,4 @@ epochs = {"DTD": 76, "EuroSAT": 12, "GTSRB": 11, "MNIST": 5, "RESISC45": 15, "SV
 fine_tune_model(model, train_loader, val_loader, epochs[chosen_dataset], optimizer, criterion, device)
 
 # Save fine-tuned weights (don’t need to store classification heads)
-model.image_encoder.save(save_path + chosen_dataset+"finetuned.pt")
+model.image_encoder.save(save_path + chosen_dataset+"_finetuned.pt")
