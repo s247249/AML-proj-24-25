@@ -117,11 +117,13 @@ def fine_tune_model(model, train_loader, val_loader, num_epochs, optimizer, crit
             
             # running_loss += loss.item()
             _, predicted = torch.max(outputs, 1)
-            # total += labels.size(0)
-            # correct += (predicted == labels).sum().item()
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
 
         # Print statistics for the epoch
         # print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {running_loss / len(train_loader)}, Accuracy: {100 * correct / total}%")
+        train_accuracy = 100 * correct / total
+        print(f"Training Accuracy: {train_accuracy}%")
         
 
         val_loss = 0.0
@@ -140,7 +142,8 @@ def fine_tune_model(model, train_loader, val_loader, num_epochs, optimizer, crit
                 val_loss += loss.item()
                 _, predicted = torch.max(outputs, 1)
                 val_total += labels.size(0)
-                val_correct += torch.sum(predicted == labels.data).data().item()
+                val_correct += (predicted == labels).sum().item()
+                # val_correct += torch.sum(predicted == labels.data).data().item()
         
         val_accuracy = 100 * val_correct / val_total
         print(f"Validation Accuracy: {val_accuracy}%")
