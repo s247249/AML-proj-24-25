@@ -93,3 +93,54 @@ def train_diag_fim_logtr(
     fim_trace = torch.log(fim_trace / samples_nr).item()
 
     return fim_trace
+
+##################################################
+# Added Functions:
+##################################################
+
+def fine_tune_model(model, train_loader, val_loader, num_epochs, optimizer, criterion, device):
+    for epoch in range(num_epochs):
+        running_loss = 0.0
+        correct = 0
+        total = 0
+        for batch in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{num_epochs}", leave=False):
+            data = maybe_dictionarize(batch)
+            images, labels = data["images"].to(device), data["labels"].to(device)
+            # Training
+            model.train()
+
+            optimizer.zero_grad()
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+            
+            # running_loss += loss.item()
+            _, predicted = torch.max(outputs, 1)
+            # total += labels.size(0)
+            # correct += (predicted == labels).sum().item()
+
+        # Print statistics for the epoch
+        # print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {running_loss / len(train_loader)}, Accuracy: {100 * correct / total}%")
+        
+
+        val_loss = 0.0
+        val_correct = 0
+        val_total = 0
+        
+        with torch.no_grad():
+            for batch in val_loader:
+                data = maybe_dictionarize(batch)
+                images, labels = data["images"].to(device), data["labels"].to(device)
+                # Validation
+                model.eval()
+                
+                outputs = model(images)
+                loss = criterion(outputs, labels)
+                val_loss += loss.item()
+                _, predicted = torch.max(outputs, 1)
+                val_total += labels.size(0)
+                val_correct += torch.sum(predicted == labels.data).data().item()
+        
+        val_accuracy = 100 * val_correct / val_total
+        print(f"Validation Accuracy: {val_accuracy}%")
