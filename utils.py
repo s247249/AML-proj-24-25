@@ -7,6 +7,10 @@ from tqdm.auto import tqdm
 from datasets.common import get_dataloader, maybe_dictionarize
 from datasets.registry import get_dataset
 
+from task_vectors import NonLinearTaskVector
+from modeling import ImageClassifier
+from heads import get_classification_head
+
 
 def torch_save(model, save_path):
     if os.path.dirname(save_path) != "":
@@ -98,7 +102,31 @@ def train_diag_fim_logtr(
 # Added Functions:
 ##################################################
 
-def fine_tune_model(model, train_loader, val_loader, num_epochs, optimizer, criterion, device):
+def get_chosen_dataset(chosen_dataset, model, args, is_train=False):
+    """
+    Function to load the requested dataset split (training, validation or test).
+    Args:
+        chosen_dataset: string containing the name of the dataset. Add 'Val' for training or validation split
+        model: the model to be used
+        args: provided args
+        is_train: default=False. Set to True to obtain the training split 
+    """
+
+    if is_train:
+        prep = model.train_preprocess
+    else:
+        prep = model.val_preprocess
+
+    
+    dataset = get_dataset(
+    chosen_dataset, preprocess=prep,
+    location=args.data_location, batch_size=32, num_workers=2)
+    dataset_loader = get_dataloader(dataset, is_train=False, args=args)
+
+    return dataset_loader
+
+
+def fine_tune_model(model, train_loader, val_loader, num_epochs, optimizer, loss_fn, device):
     for epoch in range(num_epochs):
         running_loss = 0.0
         correct = 0
@@ -111,19 +139,18 @@ def fine_tune_model(model, train_loader, val_loader, num_epochs, optimizer, crit
 
             optimizer.zero_grad()
             outputs = model(images)
-            loss = criterion(outputs, labels)
+            loss = loss_fn(outputs, labels)
             loss.backward()
             optimizer.step()
             
-            # running_loss += loss.item()
+            running_loss += loss.item()
             _, predicted = torch.max(outputs, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
 
         # Print statistics for the epoch
-        # print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {running_loss / len(train_loader)}, Accuracy: {100 * correct / total}%")
         train_accuracy = 100 * correct / total
-        print(f"Training Accuracy: {train_accuracy}%")
+        print(f"\tEpoch {epoch + 1}/{num_epochs} \nTraining Loss: {running_loss / len(train_loader)} \nTraining Accuracy: {train_accuracy}%")
         
 
         val_loss = 0.0
@@ -134,16 +161,49 @@ def fine_tune_model(model, train_loader, val_loader, num_epochs, optimizer, crit
             for batch in val_loader:
                 data = maybe_dictionarize(batch)
                 images, labels = data["images"].to(device), data["labels"].to(device)
-                # Validation
+                
                 model.eval()
                 
                 outputs = model(images)
-                loss = criterion(outputs, labels)
+                loss = loss_fn(outputs, labels)
                 val_loss += loss.item()
                 _, predicted = torch.max(outputs, 1)
                 val_total += labels.size(0)
                 val_correct += (predicted == labels).sum().item()
-                # val_correct += torch.sum(predicted == labels.data).data().item()
         
         val_accuracy = 100 * val_correct / val_total
-        print(f"Validation Accuracy: {val_accuracy}%")
+        print(f"Validation Loss: {val_loss / len(val_loader)} \nValidation Accuracy: {val_accuracy}%")
+
+def load_model(chosen_dataset, args):
+    pt_path, ft_path = "/path/to/"+chosen_dataset+"_zeroshot.pt", "/path/to/"+chosen_dataset+"_finetuned.pt"
+    task_vector1 = NonLinearTaskVector(pt_path, ft_path)
+    
+    # Get chosen_dataset open-vocabulary classifier
+    head = get_classification_head(args, chosen_dataset+"Val")
+    encoder = task_vector1.apply_to(pt_path, scaling_coef=1.0)
+    model = ImageClassifier(encoder, head)
+    return model
+
+
+def evaluate_accuracy(model, dataloader, device):
+    model.eval()
+
+    val_correct = 0
+    val_total = 0
+    
+    with torch.no_grad():
+        for batch in dataloader:
+            data = maybe_dictionarize(batch)
+            images, labels = data["images"].to(device), data["labels"].to(device)
+            
+            model.eval()
+            
+            outputs = model(images)
+            _, predicted = torch.max(outputs, 1)
+            val_total += labels.size(0)
+            val_correct += (predicted == labels).sum().item()
+    
+    accuracy = 100 * val_correct / val_total
+    print(f"Validation Accuracy: {accuracy}%")
+    
+    return accuracy
