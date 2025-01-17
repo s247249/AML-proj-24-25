@@ -18,7 +18,7 @@ datasets = {
   "SVHN": 4
   }
 
-chosen_dataset = "DTD"
+chosen_dataset = args.eval_dataset
 
 model = load_model(chosen_dataset, args)
 model.to(device)
