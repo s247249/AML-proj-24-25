@@ -8,7 +8,7 @@ from datasets.common import get_dataloader, maybe_dictionarize
 from datasets.registry import get_dataset
 
 from task_vectors import NonLinearTaskVector
-from modeling import ImageClassifier
+from modeling import ImageClassifier, ImageEncoder
 from heads import get_classification_head
 
 
@@ -121,7 +121,7 @@ def get_chosen_dataset(chosen_dataset, model, args, is_train=False):
     dataset = get_dataset(
     chosen_dataset, preprocess=prep,
     location=args.data_location, batch_size=32, num_workers=2)
-    dataset_loader = get_dataloader(dataset, is_train=False, args=args)
+    dataset_loader = get_dataloader(dataset, is_train=is_train, args=args)
 
     return dataset_loader
 
@@ -174,22 +174,40 @@ def fine_tune_model(model, train_loader, val_loader, num_epochs, optimizer, loss
         val_accuracy = 100 * val_correct / val_total
         print(f"Validation Loss: {val_loss / len(val_loader)} \nValidation Accuracy: {val_accuracy}%")
 
+
+def rebuild_zeroshot(chosen_dataset, device, args):
+    # Remaking the zeroshot checkpoint to speed up operations in colab
+
+    # Instantiate a full model architecture
+    encoder = ImageEncoder(args) # Pre-trained CLIP ViT backbone
+    encoder.to(device)
+
+    # Get chosen_dataset open-vocabulary classifier
+    head = get_classification_head(args, chosen_dataset+"Val")
+    model = ImageClassifier(encoder, head) # Build full model
+    model.freeze_head() # Freeze the classification head
+
+    save_path = "/content/AML-proj-24-25/encoders/"
+    model.image_encoder.save(save_path + chosen_dataset+"_zeroshot.pt")
+
+
 def load_model(chosen_dataset, args):
-    pt_path, ft_path = "/path/to/"+chosen_dataset+"_zeroshot.pt", "/path/to/"+chosen_dataset+"_finetuned.pt"
+    pt_path, ft_path = "/content/AML-proj-24-25/encoders/"+chosen_dataset+"_zeroshot.pt", "/content/AML-proj-24-25/encoders/to/"+chosen_dataset+"_finetuned.pt"
     task_vector1 = NonLinearTaskVector(pt_path, ft_path)
     
     # Get chosen_dataset open-vocabulary classifier
     head = get_classification_head(args, chosen_dataset+"Val")
     encoder = task_vector1.apply_to(pt_path, scaling_coef=1.0)
     model = ImageClassifier(encoder, head)
+    model.freeze_head()
     return model
 
 
 def evaluate_accuracy(model, dataloader, device):
     model.eval()
 
-    val_correct = 0
-    val_total = 0
+    correct = 0
+    total = 0
     
     with torch.no_grad():
         for batch in dataloader:
@@ -200,10 +218,9 @@ def evaluate_accuracy(model, dataloader, device):
             
             outputs = model(images)
             _, predicted = torch.max(outputs, 1)
-            val_total += labels.size(0)
-            val_correct += (predicted == labels).sum().item()
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
     
-    accuracy = 100 * val_correct / val_total
-    print(f"Validation Accuracy: {accuracy}%")
+    accuracy = 100 * correct / total
     
     return accuracy

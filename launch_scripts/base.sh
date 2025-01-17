@@ -21,9 +21,9 @@ python eval_single_task.py \
 --save=/path/to/save/ \
 
 ! python eval_single_task.py \
---data-location=/path/to/datasets/ \
---save=/path/to/save/ \
---eval-datasets DTD
+--data-location=/content/AML-proj-24-25/data/ \
+--save=/content/AML-proj-24-25/heads/ \
+--eval-datasets=SVHN
 
 python eval_task_addition.py \
 --data-location=/path/to/datasets/ \

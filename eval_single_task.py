@@ -4,7 +4,8 @@ import json
 from args import parse_arguments
 from datasets.common import get_dataloader
 from datasets.registry import get_dataset
-from utils import get_chosen_dataset,load_model, evaluate_accuracy
+from utils import get_chosen_dataset, rebuild_zeroshot, load_model, evaluate_accuracy
+
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 args = parse_arguments()
@@ -18,7 +19,10 @@ datasets = {
   "SVHN": 4
   }
 
-chosen_dataset = args.eval_datasets
+chosen_dataset = args.eval_datasets[0]
+
+# Used for colab
+rebuild_zeroshot (chosen_dataset, device, args)
 
 model = load_model(chosen_dataset, args)
 model.to(device)
@@ -32,11 +36,11 @@ test_accuracy = evaluate_accuracy(model, test_loader, device)
 
 # Save results to JSON file
 results = {
-    'validation_accuracy': val_accuracy + '%',
-    'test_accuracy': test_accuracy + '%'
+    'validation_accuracy': val_accuracy,
+    'test_accuracy': test_accuracy
 }
 
-with open(""+"_results.json", 'w') as f:
+with open("/content/AML-proj-24-25/json_results/"+chosen_dataset+"_results.json", 'w') as f:
     json.dump(results, f)
 
 print(f"Validation Accuracy: {val_accuracy:.4f}")

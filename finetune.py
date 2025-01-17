@@ -2,7 +2,7 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 
-from utils import get_chosen_dataset,fine_tune_model
+from utils import get_chosen_dataset, fine_tune_model
 
 from args import parse_arguments
 from datasets.common import get_dataloader
@@ -42,7 +42,7 @@ model.image_encoder.save(save_path + chosen_dataset+"_zeroshot.pt")
 
 model.to(device)
 
-train_loader = get_chosen_dataset(chosen_dataset, model, args, is_train=True)
+train_loader = get_chosen_dataset(chosen_dataset+'Val', model, args, is_train=True)
 val_loader = get_chosen_dataset(chosen_dataset+'Val', model, args, is_train=False)
 
 # Loss function
