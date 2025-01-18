@@ -22,6 +22,9 @@ datasets = [
   "SVHN"
   ]
 
+for dataset in datasets:
+    rebuild_zeroshot (dataset, device, args)
+
 encoders_dir = "/content/AML-proj-24-25/encoders/"
 task_paths = [
     (encoders_dir+"DTD_zeroshot.pt", encoders_dir+"DTD_finetuned.pt"),
@@ -37,10 +40,9 @@ for pt_path, ft_path in task_paths:
     task_vector = NonLinearTaskVector(pt_path, ft_path)
     task_vectors.append(task_vector)
 
-task_vec_add = sum(task_vectors)
-
-for dataset in datasets:
-    rebuild_zeroshot (dataset, device, args)
+task_vec_add = task_vectors[0]
+for i in range(1, len(task_vectors)):
+    task_vec_add += task_vectors[i]
 
 alpha, avg_norm_acc = find_best_alpha(encoders_dir, datasets, task_vec_add, args, device)
 
@@ -51,6 +53,8 @@ for dataset in datasets:
     merged_encoder = task_vec_add.apply_to(pt_path, scaling_coef=alpha)
     head = get_classification_head(args, dataset+"Val")
     merged_model = ImageClassifier(merged_encoder, head)
+
+    merged_model.to(device)
 
     # load the dataset
     test_loader = get_chosen_dataset(dataset, merged_model, args, is_train=False)
@@ -67,7 +71,7 @@ results = {
     'avg_abs_accuracy': avg_abs_accuracy
 }
 
-with open("/content/AML-proj-24-25/json_results/alpha_results.json", 'w') as f:
+with open("/content/AML-proj-24-25/json results/alpha_results.json", 'w') as f:
     json.dump(results, f)
 
 print(f"{results}")

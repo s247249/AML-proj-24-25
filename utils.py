@@ -214,8 +214,6 @@ def evaluate_accuracy(model, dataloader, device):
             data = maybe_dictionarize(batch)
             images, labels = data["images"].to(device), data["labels"].to(device)
             
-            model.eval()
-            
             outputs = model(images)
             _, predicted = torch.max(outputs, 1)
             total += labels.size(0)
@@ -233,7 +231,7 @@ def find_best_alpha(encoders_dir, datasets, task_vec_add, args, device):
     best_avg_norm_accuracy = 0.0
     
     
-    for alpha in range(0.0, 1.05, 0.05):
+    for alpha in np.arange(0.0, 1.05, 0.05):
         
         norm_accuracy = 0.0
         
@@ -248,6 +246,9 @@ def find_best_alpha(encoders_dir, datasets, task_vec_add, args, device):
             merged_encoder = task_vec_add.apply_to(pt_path, scaling_coef=alpha)
             head = get_classification_head(args, dataset+"Val")
             merged_model = ImageClassifier(merged_encoder, head)
+            merged_model.freeze_head()
+
+            merged_model.to(device)
 
             # load the dataset
             val_loader = get_chosen_dataset(dataset+'Val', merged_model, args, is_train=False)
@@ -255,7 +256,7 @@ def find_best_alpha(encoders_dir, datasets, task_vec_add, args, device):
             base_accuracy = evaluate_accuracy(base_model, val_loader, device) / 100
             merged_accuracy = evaluate_accuracy(merged_model, val_loader,  device) / 100
 
-            norm_accuracy += (merged_accuracy-base_accuracy) / (1-base_accuracy)
+            norm_accuracy += (merged_accuracy) / (base_accuracy)
 
         avg_norm_accuracy = norm_accuracy / len(datasets)
         
