@@ -27,7 +27,6 @@ rebuild_zeroshot (chosen_dataset, device, args)
 model = load_model(chosen_dataset, args)
 model.to(device)
 
-
 val_loader = get_chosen_dataset(chosen_dataset+'Val', model, args, is_train=False)
 test_loader = get_chosen_dataset(chosen_dataset, model, args, is_train=False)
 

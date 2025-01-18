@@ -192,12 +192,12 @@ def rebuild_zeroshot(chosen_dataset, device, args):
 
 
 def load_model(chosen_dataset, args):
-    pt_path, ft_path = "/content/AML-proj-24-25/encoders/"+chosen_dataset+"_zeroshot.pt", "/content/AML-proj-24-25/encoders/to/"+chosen_dataset+"_finetuned.pt"
-    task_vector1 = NonLinearTaskVector(pt_path, ft_path)
+    pt_path, ft_path = "/content/AML-proj-24-25/encoders/"+chosen_dataset+"_zeroshot.pt", "/content/AML-proj-24-25/encoders/"+chosen_dataset+"_finetuned.pt"
+    task_vector = NonLinearTaskVector(pt_path, ft_path)
     
     # Get chosen_dataset open-vocabulary classifier
     head = get_classification_head(args, chosen_dataset+"Val")
-    encoder = task_vector1.apply_to(pt_path, scaling_coef=1.0)
+    encoder = task_vector.apply_to(pt_path, scaling_coef=1.0)
     model = ImageClassifier(encoder, head)
     model.freeze_head()
     return model
@@ -224,3 +224,43 @@ def evaluate_accuracy(model, dataloader, device):
     accuracy = 100 * correct / total
     
     return accuracy
+
+
+# WIP
+def find_best_alpha(encoders_dir, datasets, task_vec_add, args, device):
+    
+    best_alpha = -1.0
+    best_avg_norm_accuracy = 0.0
+    
+    
+    for alpha in range(0.0, 1.05, 0.05):
+        
+        norm_accuracy = 0.0
+        
+        #test chosen alpha on all tasks
+        for dataset in datasets:
+
+            base_model = load_model(dataset, args)
+            base_model.to(device)
+            
+            # build the merged model
+            pt_path = encoders_dir+dataset+"_zeroshot.pt"
+            merged_encoder = task_vec_add.apply_to(pt_path, scaling_coef=alpha)
+            head = get_classification_head(args, dataset+"Val")
+            merged_model = ImageClassifier(merged_encoder, head)
+
+            # load the dataset
+            val_loader = get_chosen_dataset(dataset+'Val', merged_model, args, is_train=False)
+
+            base_accuracy = evaluate_accuracy(base_model, val_loader, device) / 100
+            merged_accuracy = evaluate_accuracy(merged_model, val_loader,  device) / 100
+
+            norm_accuracy += (merged_accuracy-base_accuracy) / (1-base_accuracy)
+
+        avg_norm_accuracy = norm_accuracy / len(datasets)
+        
+        if avg_norm_accuracy > best_avg_norm_accuracy:
+            best_alpha = alpha
+            best_avg_norm_accuracy = avg_norm_accuracy
+
+    return best_alpha, best_avg_norm_accuracy * 100
