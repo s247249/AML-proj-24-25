@@ -45,12 +45,16 @@ val_loader = get_chosen_dataset(dataset+'Val', model, args, is_train=False)
 
 # Loss function
 loss_fn = nn.CrossEntropyLoss()
-if args.lr:
-    chosen_lr=args.lr
-else:
-    chosen_lr=1e-4
-# SGD Optimizer with lr=1-4
-optimizer = optim.SGD(model.image_encoder.parameters(), lr=chosen_lr)
+
+chosen_lr=args.lr
+chosen_wd=args.wd
+
+# SGD Optimizer
+optimizer = optim.SGD(model.image_encoder.parameters(), lr=chosen_lr, weight_decay=chosen_wd)
+
+if args.wd:
+    wd = args.wd
+    optimizer = optim.SGD(model.image_encoder.parameters(), lr=chosen_lr)
 
 fine_tune_model(model, train_loader, val_loader, datasets[dataset], optimizer, loss_fn, device)
 

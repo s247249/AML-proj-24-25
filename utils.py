@@ -116,11 +116,12 @@ def get_chosen_dataset(chosen_dataset, model, args, is_train=False):
         prep = model.train_preprocess
     else:
         prep = model.val_preprocess
-
+    
+    bs = args.batch_size
     
     dataset = get_dataset(
     chosen_dataset, preprocess=prep,
-    location=args.data_location, batch_size=32, num_workers=2)
+    location=args.data_location, batch_size=bs, num_workers=2)
     dataset_loader = get_dataloader(dataset, is_train=is_train, args=args)
 
     return dataset_loader
