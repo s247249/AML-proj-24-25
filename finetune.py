@@ -24,33 +24,34 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 args = parse_arguments() # Result of CLI argument parsing
 
-for dataset in args.eval_dataset:
-  # Instantiate a full model architecture
-  encoder = ImageEncoder(args) # Pre-trained CLIP ViT backbone
-  encoder.to(device)
+dataset = args.train_dataset
 
-  # Get chosen_dataset open-vocabulary classifier
-  head = get_classification_head(args, dataset+"Val")
-  model = ImageClassifier(encoder, head) # Build full model
-  model.freeze_head() # Freeze the classification head
+# Instantiate a full model architecture
+encoder = ImageEncoder(args) # Pre-trained CLIP ViT backbone
+encoder.to(device)
 
-  # Added
-  save_path = "/content/AML-proj-24-25/encoders/"
-  model.image_encoder.save(save_path + dataset+"_zeroshot.pt")
+# Get chosen_dataset open-vocabulary classifier
+head = get_classification_head(args, dataset+"Val")
+model = ImageClassifier(encoder, head) # Build full model
+model.freeze_head() # Freeze the classification head
 
-  model.to(device)
+# Added
+save_path = "/content/AML-proj-24-25/encoders/"
+model.image_encoder.save(save_path + dataset+"_zeroshot.pt")
 
-  train_loader = get_chosen_dataset(dataset+'Val', model, args, is_train=True)
-  val_loader = get_chosen_dataset(dataset+'Val', model, args, is_train=False)
+model.to(device)
 
-  # Loss function
-  loss_fn = nn.CrossEntropyLoss()
-  # SGD Optimizer with lr=1-4
-  optimizer = optim.SGD(model.image_encoder.parameters(), lr=1e-4)
+train_loader = get_chosen_dataset(dataset+'Val', model, args, is_train=True)
+val_loader = get_chosen_dataset(dataset+'Val', model, args, is_train=False)
 
-  epochs = {"DTD": 76, "EuroSAT": 12, "GTSRB": 11, "MNIST": 5, "RESISC45": 15, "SVHN": 4}
+# Loss function
+loss_fn = nn.CrossEntropyLoss()
+# SGD Optimizer with lr=1-4
+optimizer = optim.SGD(model.image_encoder.parameters(), lr=1e-4)
 
-  fine_tune_model(model, train_loader, val_loader, epochs[dataset], optimizer, loss_fn, device)
+epochs = {"DTD": 76, "EuroSAT": 12, "GTSRB": 11, "MNIST": 5, "RESISC45": 15, "SVHN": 4}
 
-  # Save fine-tuned weights (don’t need to store classification heads)
-  model.image_encoder.save(save_path + dataset+"_finetuned.pt")
+fine_tune_model(model, train_loader, val_loader, epochs[dataset], optimizer, loss_fn, device)
+
+# Save fine-tuned weights (don’t need to store classification heads)
+model.image_encoder.save(save_path + dataset+"_finetuned.pt")

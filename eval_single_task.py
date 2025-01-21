@@ -11,7 +11,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 args = parse_arguments()
 
 
-for dataset in args.eval_dataset:
+for dataset in args.eval_datasets:
   # Used for colab
   rebuild_zeroshot (dataset, device, args)
 
