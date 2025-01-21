@@ -54,7 +54,15 @@ for dataset in args.eval_datasets:
         'test_accuracy': test_accuracy
     }
 
-    with open(save_path+"/"+dataset+"/"+"_results.json", 'w') as f:
+    if testing:
+        results = {
+            'test_accuracy': test_accuracy,
+            'validation_accuracy': val_accuracy,
+            'test_accuracy': test_accuracy,
+            'logdet_hF': logdet_hF
+        }
+
+    with open(save_path+"/"+dataset+"_results.json", 'w') as f:
         json.dump(results, f)
 
     print(f"\nDataset: {dataset}")
