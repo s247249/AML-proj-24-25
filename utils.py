@@ -151,7 +151,7 @@ def fine_tune_model(model, train_loader, val_loader, num_epochs, optimizer, loss
 
         # Print statistics for the epoch
         train_accuracy = 100 * correct / total
-        print(f"\tEpoch {epoch + 1}/{num_epochs}: \nTraining Loss: {running_loss / len(train_loader)} \nTraining Accuracy: {train_accuracy}%")
+        print(f"\n\tEpoch {epoch + 1}/{num_epochs}: \nTraining Loss: {running_loss / len(train_loader)} \nTraining Accuracy: {train_accuracy}%")
         
 
         val_loss = 0.0
@@ -193,7 +193,17 @@ def rebuild_zeroshot(chosen_dataset, device, args):
 
 
 def load_model(chosen_dataset, args):
-    pt_path, ft_path = "/content/AML-proj-24-25/encoders/"+chosen_dataset+"_zeroshot.pt", "/content/AML-proj-24-25/encoders/"+chosen_dataset+"_finetuned.pt"
+    ft_model_path = "/content/AML-proj-24-25/encoders"
+    
+    if not args.batch_size==32:
+        ft_model_path += "/bs_" +str(args.batch_size)
+    elif not args.lr==1e-4:
+        ft_model_path += "/lr_" + str(args.lr)
+    elif not args.wd==0.0:
+        ft_model_path += "/wd_" + str(args.lr)
+
+    pt_path = "/content/AML-proj-24-25/encoders/"+chosen_dataset+"_zeroshot.pt"
+    ft_path = ft_model_path+"/"+chosen_dataset+"_finetuned.pt"
     task_vector = NonLinearTaskVector(pt_path, ft_path)
     
     # Get chosen_dataset open-vocabulary classifier

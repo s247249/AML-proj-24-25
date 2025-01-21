@@ -1,6 +1,7 @@
 import torch
 import torch.optim as optim
 import torch.nn as nn
+import os
 
 from utils import get_chosen_dataset, fine_tune_model
 
@@ -23,40 +24,50 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 args = parse_arguments() # Result of CLI argument parsing
 
-dataset = args.train_dataset
+for dataset in args.train_dataset:
+    # Instantiate a full model architecture
+    encoder = ImageEncoder(args) # Pre-trained CLIP ViT backbone
+    encoder.to(device)
 
-# Instantiate a full model architecture
-encoder = ImageEncoder(args) # Pre-trained CLIP ViT backbone
-encoder.to(device)
+    # Get chosen_dataset open-vocabulary classifier
+    head = get_classification_head(args, dataset+"Val")
+    model = ImageClassifier(encoder, head) # Build full model
+    model.freeze_head() # Freeze the classification head
 
-# Get chosen_dataset open-vocabulary classifier
-head = get_classification_head(args, dataset+"Val")
-model = ImageClassifier(encoder, head) # Build full model
-model.freeze_head() # Freeze the classification head
+    # Added
+    save_path = "/content/AML-proj-24-25/encoders"
+    model.image_encoder.save(save_path + "/" + dataset+"_zeroshot.pt")
 
-# Added
-save_path = "/content/AML-proj-24-25/encoders/"
-model.image_encoder.save(save_path + dataset+"_zeroshot.pt")
+    model.to(device)
 
-model.to(device)
+    train_loader = get_chosen_dataset(dataset+'Val', model, args, is_train=True)
+    val_loader = get_chosen_dataset(dataset+'Val', model, args, is_train=False)
 
-train_loader = get_chosen_dataset(dataset+'Val', model, args, is_train=True)
-val_loader = get_chosen_dataset(dataset+'Val', model, args, is_train=False)
+    # Loss function
+    loss_fn = nn.CrossEntropyLoss()
 
-# Loss function
-loss_fn = nn.CrossEntropyLoss()
+    # SGD Optimizer
+    optimizer = optim.SGD(model.image_encoder.parameters(), lr=args.lr, weight_decay=args.wd)
 
-chosen_lr=args.lr
-chosen_wd=args.wd
+    fine_tune_model(model, train_loader, val_loader, datasets[dataset], optimizer, loss_fn, device)
 
-# SGD Optimizer
-optimizer = optim.SGD(model.image_encoder.parameters(), lr=chosen_lr, weight_decay=chosen_wd)
 
-if args.wd:
-    wd = args.wd
-    optimizer = optim.SGD(model.image_encoder.parameters(), lr=chosen_lr)
+    if not args.batch_size==32:
+        save_path += "/bs_" +str(args.batch_size)
+        if not os.path.isdir(save_path):
+            os.makedirs(save_path, exist_ok=True)
+    elif not args.lr==1e-4:
+        save_path += "/lr_" + str(args.lr)
+        if not os.path.isdir(save_path):
+            os.makedirs(save_path, exist_ok=True)
+    elif not args.wd==0.0:
+        save_path += "/wd_" + str(args.wd)
+        if not os.path.isdir(save_path):
+            os.makedirs(save_path, exist_ok=True)
 
-fine_tune_model(model, train_loader, val_loader, datasets[dataset], optimizer, loss_fn, device)
 
-# Save fine-tuned weights (don’t need to store classification heads)
-model.image_encoder.save(save_path + dataset+"_finetuned.pt")
+
+    model_save = save_path + "/" + dataset+"_finetuned.pt"
+
+    # Save fine-tuned weights (don’t need to store classification heads)
+    model.image_encoder.save(model_save + dataset+"_finetuned.pt")

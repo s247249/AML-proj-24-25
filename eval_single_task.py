@@ -11,6 +11,21 @@ args = parse_arguments()
 
 testing = True
 
+save_path = "/content/AML-proj-24-25/json_results"
+
+if not args.batch_size==32:
+    save_path += "/bs_" + str(args.batch_size)
+    if not os.path.isdir(save_path):
+        os.makedirs(save_path, exist_ok=True)
+elif not args.lr==1e-4:
+    save_path += "/lr_" + str(args.lr)
+    if not os.path.isdir(save_path):
+        os.makedirs(save_path, exist_ok=True)
+elif not args.wd==0.0:
+    save_path += "/wd_" + str(args.wd)
+    if not os.path.isdir(save_path):
+        os.makedirs(save_path, exist_ok=True)
+
 for dataset in args.eval_datasets:
     # Used for colab# rebuild zeroshot models (for colab)
     if not os.path.isfile("/content/AML-proj-24-25/encoders/" + dataset + "_zeroshot.pt"):
@@ -39,7 +54,7 @@ for dataset in args.eval_datasets:
         'test_accuracy': test_accuracy
     }
 
-    with open("/content/AML-proj-24-25/json_results/"+dataset+"_results.json", 'w') as f:
+    with open(save_path+"/"+dataset+"/"+"_results.json", 'w') as f:
         json.dump(results, f)
 
     print(f"\nDataset: {dataset}")
