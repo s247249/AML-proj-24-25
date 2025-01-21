@@ -202,6 +202,35 @@ def load_model(chosen_dataset, args):
     model.freeze_head()
     return model
 
+def load_merged_model(encoders_dir, dataset, alpha, args):
+    task_paths = [
+        (encoders_dir+"DTD_zeroshot.pt", encoders_dir+"DTD_finetuned.pt"),
+        (encoders_dir+"EuroSAT_zeroshot.pt", encoders_dir+"EuroSAT_finetuned.pt"),
+        (encoders_dir+"GTSRB_zeroshot.pt", encoders_dir+"GTSRB_finetuned.pt"),
+        (encoders_dir+"MNIST_zeroshot.pt", encoders_dir+"MNIST_finetuned.pt"),
+        (encoders_dir+"RESISC45_zeroshot.pt", encoders_dir+"RESISC45_finetuned.pt"),
+        (encoders_dir+"SVHN_zeroshot.pt", encoders_dir+"SVHN_finetuned.pt"),
+    ]   
+
+    # Get task vectors
+    task_vectors = []
+    for pt_path, ft_path in task_paths:
+        task_vector = NonLinearTaskVector(pt_path, ft_path)
+        task_vectors.append(task_vector)
+    
+    # Add task vectors
+    task_vec_add = task_vectors[0]
+    for i in range(1, len(task_vectors)):
+        task_vec_add += task_vectors[i]
+
+    # Build the merged model
+    pt_path = encoders_dir+dataset+"_zeroshot.pt"
+    merged_encoder = task_vec_add.apply_to(pt_path, scaling_coef=alpha)
+    head = get_classification_head(args, dataset+"Val")
+    merged_model = ImageClassifier(merged_encoder, head)
+    merged_model.freeze_head()
+    return merged_model
+
 
 def evaluate_accuracy(model, dataloader, device):
     model.eval()
@@ -224,44 +253,42 @@ def evaluate_accuracy(model, dataloader, device):
     return accuracy
 
 
-# WIP
-def find_best_alpha(encoders_dir, datasets, task_vec_add, args, device):
+def find_best_alpha(encoders_dir, results_dict, datasets, task_vectors, args, device):
     
     best_alpha = -1.0
     best_avg_norm_accuracy = 0.0
     
     
     for alpha in np.arange(0.0, 1.05, 0.05):
-        
+        print(f"Testing alpha = {alpha}")
+
         norm_accuracy = 0.0
         
         #test chosen alpha on all tasks
         for dataset in datasets:
 
-            base_model = load_model(dataset, args)
-            base_model.to(device)
+            # base_model = load_model(dataset, args)
+            # base_model.to(device)
             
-            # build the merged model
-            pt_path = encoders_dir+dataset+"_zeroshot.pt"
-            merged_encoder = task_vec_add.apply_to(pt_path, scaling_coef=alpha)
-            head = get_classification_head(args, dataset+"Val")
-            merged_model = ImageClassifier(merged_encoder, head)
-            merged_model.freeze_head()
-
+            merged_model = load_merged_model(encoders_dir, dataset, alpha, args)
             merged_model.to(device)
 
             # load the dataset
             val_loader = get_chosen_dataset(dataset+'Val', merged_model, args, is_train=False)
 
-            base_accuracy = evaluate_accuracy(base_model, val_loader, device) / 100
+            # base_accuracy = evaluate_accuracy(model, val_loader,  device) / 100
+            base_accuracy = results_dict[dataset].get('validation_accuracy') / 100
+            print(f"base finetuned accuracy from dataset {dataset} = {base_accuracy}")
             merged_accuracy = evaluate_accuracy(merged_model, val_loader,  device) / 100
 
             norm_accuracy += (merged_accuracy) / (base_accuracy)
 
         avg_norm_accuracy = norm_accuracy / len(datasets)
-        
+        print(f"Obtained average normalized accuracy = {avg_norm_accuracy}\n")
+
         if avg_norm_accuracy > best_avg_norm_accuracy:
             best_alpha = alpha
             best_avg_norm_accuracy = avg_norm_accuracy
 
+    
     return best_alpha, best_avg_norm_accuracy * 100

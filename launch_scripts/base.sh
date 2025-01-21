@@ -14,7 +14,8 @@ python finetune.py \
 --save=/content/AML-proj-24-25/heads/ \
 --batch-size=32 \
 --lr=1e-4 \
---wd=0.0
+--wd=0.0 \
+--eval-datasets=DTD
 
 python eval_single_task.py \
 --data-location=/path/to/datasets/ \
@@ -23,7 +24,7 @@ python eval_single_task.py \
 ! python eval_single_task.py \
 --data-location=/content/AML-proj-24-25/data/ \
 --save=/content/AML-proj-24-25/heads/ \
---eval-datasets=SVHN
+--eval-datasets=DTD
 
 python eval_task_addition.py \
 --data-location=/path/to/datasets/ \

@@ -2,10 +2,7 @@ import torch
 import json
 
 from args import parse_arguments
-from datasets.common import get_dataloader
-from datasets.registry import get_dataset
-from utils import get_chosen_dataset, rebuild_zeroshot, load_model, evaluate_accuracy, find_best_alpha
-from task_vectors import NonLinearTaskVector
+from utils import get_chosen_dataset, rebuild_zeroshot, load_merged_model, evaluate_accuracy, find_best_alpha
 from heads import get_classification_head
 from modeling import ImageClassifier
 
@@ -22,38 +19,25 @@ datasets = [
   "SVHN"
   ]
 
+json_dir = "/content/AML-proj-24-25/json results/"
+results_dict = {}
+
 for dataset in datasets:
+    # rebuild zeroshot models (for colab)
     rebuild_zeroshot (dataset, device, args)
+    with open(json_dir + dataset +"_results.json", 'r') as f:
+        results = json.load(f)
+    results_dict[dataset] = results
 
 encoders_dir = "/content/AML-proj-24-25/encoders/"
-task_paths = [
-    (encoders_dir+"DTD_zeroshot.pt", encoders_dir+"DTD_finetuned.pt"),
-    (encoders_dir+"EuroSAT_zeroshot.pt", encoders_dir+"EuroSAT_finetuned.pt"),
-    (encoders_dir+"GTSRB_zeroshot.pt", encoders_dir+"GTSRB_finetuned.pt"),
-    (encoders_dir+"MNIST_zeroshot.pt", encoders_dir+"MNIST_finetuned.pt"),
-    (encoders_dir+"RESISC45_zeroshot.pt", encoders_dir+"RESISC45_finetuned.pt"),
-    (encoders_dir+"SVHN_zeroshot.pt", encoders_dir+"SVHN_finetuned.pt"),
-]   
 
-task_vectors = []
-for pt_path, ft_path in task_paths:
-    task_vector = NonLinearTaskVector(pt_path, ft_path)
-    task_vectors.append(task_vector)
-
-task_vec_add = task_vectors[0]
-for i in range(1, len(task_vectors)):
-    task_vec_add += task_vectors[i]
-
-alpha, avg_norm_acc = find_best_alpha(encoders_dir, datasets, task_vec_add, args, device)
+print("Searching for best alpha value")
+alpha, avg_norm_acc = find_best_alpha(encoders_dir, results_dict, datasets, args, device)
 
 avg_abs_accuracy = 0.0
 for dataset in datasets:
 
-    pt_path = encoders_dir+dataset+"_zeroshot.pt"
-    merged_encoder = task_vec_add.apply_to(pt_path, scaling_coef=alpha)
-    head = get_classification_head(args, dataset+"Val")
-    merged_model = ImageClassifier(merged_encoder, head)
-
+    merged_model = load_merged_model(encoders_dir, dataset, alpha, args)
     merged_model.to(device)
 
     # load the dataset
@@ -71,7 +55,8 @@ results = {
     'avg_abs_accuracy': avg_abs_accuracy
 }
 
-with open("/content/AML-proj-24-25/json results/alpha_results.json", 'w') as f:
+
+with open(json_dir + "alpha_results.json", 'w') as f:
     json.dump(results, f)
 
 print(f"{results}")
