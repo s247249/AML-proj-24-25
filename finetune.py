@@ -5,20 +5,19 @@ import torch.nn as nn
 from utils import get_chosen_dataset, fine_tune_model
 
 from args import parse_arguments
-from datasets.common import get_dataloader
-from datasets.registry import get_dataset
 from modeling import ImageClassifier, ImageEncoder
 from heads import get_classification_head
 
 
 datasets = {
-  "DTD": 76,
-  "EuroSAT": 12,
-  "GTSRB": 11,
-  "MNIST": 5,
-  "RESISC45": 15,
-  "SVHN": 4
-  }
+    "DTD": 76,
+    "EuroSAT": 12,
+    "GTSRB": 11,
+    "MNIST": 5,
+    "RESISC45": 15,
+    "SVHN": 4
+    }
+    
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -46,12 +45,14 @@ val_loader = get_chosen_dataset(dataset+'Val', model, args, is_train=False)
 
 # Loss function
 loss_fn = nn.CrossEntropyLoss()
+if args.lr:
+    chosen_lr=args.lr
+else:
+    chosen_lr=1e-4
 # SGD Optimizer with lr=1-4
-optimizer = optim.SGD(model.image_encoder.parameters(), lr=1e-4)
+optimizer = optim.SGD(model.image_encoder.parameters(), lr=chosen_lr)
 
-epochs = {"DTD": 76, "EuroSAT": 12, "GTSRB": 11, "MNIST": 5, "RESISC45": 15, "SVHN": 4}
-
-fine_tune_model(model, train_loader, val_loader, epochs[dataset], optimizer, loss_fn, device)
+fine_tune_model(model, train_loader, val_loader, datasets[dataset], optimizer, loss_fn, device)
 
 # Save fine-tuned weights (don’t need to store classification heads)
 model.image_encoder.save(save_path + dataset+"_finetuned.pt")

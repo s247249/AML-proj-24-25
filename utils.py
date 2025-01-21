@@ -134,7 +134,7 @@ def fine_tune_model(model, train_loader, val_loader, num_epochs, optimizer, loss
         for batch in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{num_epochs}", leave=False):
             data = maybe_dictionarize(batch)
             images, labels = data["images"].to(device), data["labels"].to(device)
-            # Training
+            
             model.train()
 
             optimizer.zero_grad()
@@ -150,7 +150,7 @@ def fine_tune_model(model, train_loader, val_loader, num_epochs, optimizer, loss
 
         # Print statistics for the epoch
         train_accuracy = 100 * correct / total
-        print(f"\tEpoch {epoch + 1}/{num_epochs} \nTraining Loss: {running_loss / len(train_loader)} \nTraining Accuracy: {train_accuracy}%")
+        print(f"\tEpoch {epoch + 1}/{num_epochs}: \nTraining Loss: {running_loss / len(train_loader)} \nTraining Accuracy: {train_accuracy}%")
         
 
         val_loss = 0.0
@@ -201,6 +201,7 @@ def load_model(chosen_dataset, args):
     model = ImageClassifier(encoder, head)
     model.freeze_head()
     return model
+
 
 def load_merged_model(encoders_dir, dataset, alpha, args):
     task_paths = [
@@ -253,42 +254,34 @@ def evaluate_accuracy(model, dataloader, device):
     return accuracy
 
 
-def find_best_alpha(encoders_dir, results_dict, datasets, task_vectors, args, device):
+def find_best_alpha(encoders_dir, results_dict, datasets, args, device):
     
     best_alpha = -1.0
     best_avg_norm_accuracy = 0.0
     
     
     for alpha in np.arange(0.0, 1.05, 0.05):
-        print(f"Testing alpha = {alpha}")
-
         norm_accuracy = 0.0
         
         #test chosen alpha on all tasks
-        for dataset in datasets:
-
-            # base_model = load_model(dataset, args)
-            # base_model.to(device)
-            
+        for dataset in datasets: 
+            # build the merged_model for specific dataset           
             merged_model = load_merged_model(encoders_dir, dataset, alpha, args)
             merged_model.to(device)
 
             # load the dataset
             val_loader = get_chosen_dataset(dataset+'Val', merged_model, args, is_train=False)
+            # evaluate accuracy for specific dataset
+            merged_accuracy = evaluate_accuracy(merged_model, val_loader,  device)
 
-            # base_accuracy = evaluate_accuracy(model, val_loader,  device) / 100
-            base_accuracy = results_dict[dataset].get('validation_accuracy') / 100
-            print(f"base finetuned accuracy from dataset {dataset} = {base_accuracy}")
-            merged_accuracy = evaluate_accuracy(merged_model, val_loader,  device) / 100
-
-            norm_accuracy += (merged_accuracy) / (base_accuracy)
+            base_accuracy = results_dict[dataset].get('validation_accuracy')
+            norm_accuracy += merged_accuracy / base_accuracy
 
         avg_norm_accuracy = norm_accuracy / len(datasets)
-        print(f"Obtained average normalized accuracy = {avg_norm_accuracy}\n")
 
         if avg_norm_accuracy > best_avg_norm_accuracy:
             best_alpha = alpha
             best_avg_norm_accuracy = avg_norm_accuracy
 
     
-    return best_alpha, best_avg_norm_accuracy * 100
+    return best_alpha, best_avg_norm_accuracy
