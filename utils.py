@@ -208,7 +208,7 @@ def load_model(chosen_dataset, args):
     
     # Get chosen_dataset open-vocabulary classifier
     head = get_classification_head(args, chosen_dataset+"Val")
-    encoder = task_vector.apply_to(pt_path, scaling_coef=1.0)
+    encoder = task_vector.apply_to(pt_path, scaling_coef=args.alpha)
     model = ImageClassifier(encoder, head)
     model.freeze_head()
     return model

@@ -58,7 +58,7 @@ for dataset in args.eval_datasets:
         results = {
             'test_accuracy': test_accuracy,
             'validation_accuracy': val_accuracy,
-            'test_accuracy': test_accuracy,
+            'train_accuracy': train_accuracy,
             'logdet_hF': logdet_hF
         }
 

@@ -56,6 +56,7 @@ def parse_arguments():
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate.")
     parser.add_argument("--wd", type=float, default=0.0, help="Weight decay")
     parser.add_argument("--ls", type=float, default=0.0, help="Label smoothing.")
+    parser.add_argument("--alpha", type=int, default=1.0, help="Scaling coefficient")
     parser.add_argument(
         "--warmup_length",
         type=int,
