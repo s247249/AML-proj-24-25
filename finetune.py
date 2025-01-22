@@ -66,8 +66,5 @@ for dataset in args.train_dataset:
             os.makedirs(save_path, exist_ok=True)
 
 
-
-    model_save = save_path + "/" + dataset+"_finetuned.pt"
-
     # Save fine-tuned weights (don’t need to store classification heads)
-    model.image_encoder.save(model_save + dataset+"_finetuned.pt")
+    model.image_encoder.save(save_path + "/" + dataset+"_finetuned.pt")
