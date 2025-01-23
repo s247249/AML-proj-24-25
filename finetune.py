@@ -3,7 +3,7 @@ import torch.optim as optim
 import torch.nn as nn
 import os
 
-from utils import get_chosen_dataset, fine_tune_model
+from utils import get_chosen_dataset, fine_tune_model, build_zeroshot
 
 from args import parse_arguments
 from modeling import ImageClassifier, ImageEncoder
@@ -36,7 +36,7 @@ for dataset in args.train_dataset:
 
     # Added
     save_path = "/content/AML-proj-24-25/encoders"
-    model.image_encoder.save(save_path + "/" + dataset+"_zeroshot.pt")
+    model.image_encoder.save(save_path + "/zeroshot.pt")
 
     model.to(device)
 

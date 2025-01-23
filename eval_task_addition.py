@@ -3,7 +3,9 @@ import json
 import os
 
 from args import parse_arguments
-from utils import get_chosen_dataset, rebuild_zeroshot, load_merged_model, evaluate_accuracy, find_best_alpha
+from utils import get_chosen_dataset, build_zeroshot, load_merged_encoder, evaluate_accuracy, find_best_alpha
+from modeling import ImageClassifier
+from heads import get_classification_head
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -21,11 +23,11 @@ datasets = [
 json_dir = "/content/AML-proj-24-25/json_results/"
 results_dict = {}
 
-for dataset in datasets:
-    # rebuild zeroshot models (for colab)
-    if not os.path.isfile("/content/AML-proj-24-25/encoders/" + dataset + "_zeroshot.pt"):
-        rebuild_zeroshot (dataset, device, args)
+# rebuild zeroshot models (for colab)
+if not os.path.isfile("/content/AML-proj-24-25/encoders/zeroshot.pt"):
+    build_zeroshot (datasets[0], device, args)
 
+for dataset in datasets:
     with open(json_dir + dataset +"_results.json", 'r') as f:
         results = json.load(f)
     results_dict[dataset] = results
@@ -35,9 +37,14 @@ encoders_dir = "/content/AML-proj-24-25/encoders/"
 print("Searching for best alpha value")
 alpha, avg_norm_acc = find_best_alpha(encoders_dir, results_dict, datasets, args, device)
 avg_abs_accuracy = 0.0
+
+
+merged_encoder = load_merged_encoder(encoders_dir, alpha)
 for dataset in datasets:
 
-    merged_model = load_merged_model(encoders_dir, dataset, alpha, args)
+    head = get_classification_head(args, dataset+"Val")
+    merged_model = ImageClassifier(merged_encoder, head)
+    merged_model.freeze_head()
     merged_model.to(device)
 
     # load the dataset

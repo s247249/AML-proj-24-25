@@ -176,7 +176,7 @@ def fine_tune_model(model, train_loader, val_loader, num_epochs, optimizer, loss
         print(f"Validation Loss: {val_loss / len(val_loader)} \nValidation Accuracy: {val_accuracy}%")
 
 
-def rebuild_zeroshot(chosen_dataset, device, args):
+def build_zeroshot(chosen_dataset, device, args):
     # Remaking the zeroshot checkpoint to speed up operations in colab
 
     # Instantiate a full model architecture
@@ -188,8 +188,7 @@ def rebuild_zeroshot(chosen_dataset, device, args):
     model = ImageClassifier(encoder, head) # Build full model
     model.freeze_head() # Freeze the classification head
 
-    save_path = "/content/AML-proj-24-25/encoders/"
-    model.image_encoder.save(save_path + chosen_dataset+"_zeroshot.pt")
+    model.image_encoder.save("/content/AML-proj-24-25/encoders/zeroshot.pt")
 
 
 def load_model(chosen_dataset, args):
@@ -202,7 +201,7 @@ def load_model(chosen_dataset, args):
     elif not args.wd==0.0:
         ft_model_path += "/wd_" + str(args.lr)
 
-    pt_path = "/content/AML-proj-24-25/encoders/"+chosen_dataset+"_zeroshot.pt"
+    pt_path = "/content/AML-proj-24-25/encoders/zeroshot.pt"
     ft_path = ft_model_path+"/"+chosen_dataset+"_finetuned.pt"
     task_vector = NonLinearTaskVector(pt_path, ft_path)
     
@@ -214,19 +213,20 @@ def load_model(chosen_dataset, args):
     return model
 
 
-def load_merged_model(encoders_dir, dataset, alpha, args):
-    task_paths = [
-        (encoders_dir+"DTD_zeroshot.pt", encoders_dir+"DTD_finetuned.pt"),
-        (encoders_dir+"EuroSAT_zeroshot.pt", encoders_dir+"EuroSAT_finetuned.pt"),
-        (encoders_dir+"GTSRB_zeroshot.pt", encoders_dir+"GTSRB_finetuned.pt"),
-        (encoders_dir+"MNIST_zeroshot.pt", encoders_dir+"MNIST_finetuned.pt"),
-        (encoders_dir+"RESISC45_zeroshot.pt", encoders_dir+"RESISC45_finetuned.pt"),
-        (encoders_dir+"SVHN_zeroshot.pt", encoders_dir+"SVHN_finetuned.pt"),
+def load_merged_encoder(encoders_dir, alpha):
+    pt_path = encoders_dir+"zeroshot.pt"
+    encoders_paths = [
+        encoders_dir+"DTD_finetuned.pt",
+        encoders_dir+"EuroSAT_finetuned.pt",
+        encoders_dir+"GTSRB_finetuned.pt",
+        encoders_dir+"MNIST_finetuned.pt",
+        encoders_dir+"RESISC45_finetuned.pt",
+        encoders_dir+"SVHN_finetuned.pt",
     ]   
 
     # Get task vectors
     task_vectors = []
-    for pt_path, ft_path in task_paths:
+    for ft_path in encoders_paths:
         task_vector = NonLinearTaskVector(pt_path, ft_path)
         task_vectors.append(task_vector)
     
@@ -235,13 +235,9 @@ def load_merged_model(encoders_dir, dataset, alpha, args):
     for i in range(1, len(task_vectors)):
         task_vec_add += task_vectors[i]
 
-    # Build the merged model
-    pt_path = encoders_dir+dataset+"_zeroshot.pt"
+    # Build the merged encoder
     merged_encoder = task_vec_add.apply_to(pt_path, scaling_coef=alpha)
-    head = get_classification_head(args, dataset+"Val")
-    merged_model = ImageClassifier(merged_encoder, head)
-    merged_model.freeze_head()
-    return merged_model
+    return merged_encoder
 
 
 def evaluate_accuracy(model, dataloader, device):
@@ -271,13 +267,17 @@ def find_best_alpha(encoders_dir, results_dict, datasets, args, device):
     best_avg_norm_accuracy = 0.0
     
     
+    merged_encoder = load_merged_encoder(encoders_dir, alpha)
+    
     for alpha in np.arange(0.0, 1.05, 0.05):
         norm_accuracy = 0.0
         
         #test chosen alpha on all tasks
         for dataset in datasets: 
             # build the merged_model for specific dataset           
-            merged_model = load_merged_model(encoders_dir, dataset, alpha, args)
+            head = get_classification_head(args, dataset+"Val")
+            merged_model = ImageClassifier(merged_encoder, head)
+            merged_model.freeze_head()
             merged_model.to(device)
 
             # load the dataset

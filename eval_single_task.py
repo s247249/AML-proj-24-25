@@ -3,7 +3,7 @@ import json
 import os
 
 from args import parse_arguments
-from utils import train_diag_fim_logtr, get_chosen_dataset, rebuild_zeroshot, load_model, evaluate_accuracy
+from utils import train_diag_fim_logtr, get_chosen_dataset, build_zeroshot, load_model, evaluate_accuracy
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -26,11 +26,12 @@ elif not args.wd==0.0:
     if not os.path.isdir(save_path):
         os.makedirs(save_path, exist_ok=True)
 
-for dataset in args.eval_datasets:
-    # Used for colab# rebuild zeroshot models (for colab)
-    if not os.path.isfile("/content/AML-proj-24-25/encoders/" + dataset + "_zeroshot.pt"):
-        rebuild_zeroshot (dataset, device, args)
+# Used for colab# rebuild zeroshot model (for colab)
+if not os.path.isfile("/content/AML-proj-24-25/encoders/zeroshot.pt"):
+    build_zeroshot ("DTD", device, args)
 
+for dataset in args.eval_datasets:
+    
     model = load_model(dataset, args)
     model.to(device)
 
