@@ -3,7 +3,7 @@ import json
 import os
 
 from args import parse_arguments
-from utils import train_diag_fim_logtr, get_chosen_dataset, build_zeroshot, load_model, evaluate_accuracy
+from utils import train_diag_fim_logtr, get_chosen_dataset, build_zeroshot, load_model, load_merged_encoder, evaluate_accuracy
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -30,9 +30,12 @@ elif not args.wd==0.0:
 if not os.path.isfile("/content/AML-proj-24-25/encoders/zeroshot.pt"):
     build_zeroshot ("DTD", device, args)
 
+
 for dataset in args.eval_datasets:
-    
-    model = load_model(dataset, args)
+    if args.model:
+        model = load_model(dataset, args, merged=True)
+    else:
+        model = load_model(dataset, args)
     model.to(device)
 
     val_loader = get_chosen_dataset(dataset+'Val', model, args, is_train=False)
