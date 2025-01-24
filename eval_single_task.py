@@ -25,6 +25,13 @@ elif not args.wd==0.0:
     save_path += "/wd_" + str(args.wd)
     if not os.path.isdir(save_path):
         os.makedirs(save_path, exist_ok=True)
+# Change directory for merged model
+if args.merged:
+    save_path += "/merged"
+    if not os.path.isdir(save_path):
+        os.makedirs(save_path, exist_ok=True)
+
+save_path += "/"
 
 # Used for colab# rebuild zeroshot model (for colab)
 if not os.path.isfile("/content/AML-proj-24-25/encoders/zeroshot.pt"):
@@ -32,7 +39,7 @@ if not os.path.isfile("/content/AML-proj-24-25/encoders/zeroshot.pt"):
 
 
 for dataset in args.eval_datasets:
-    if args.model:
+    if args.merged:
         model = load_model(dataset, args, merged=True)
     else:
         model = load_model(dataset, args)
@@ -65,13 +72,14 @@ for dataset in args.eval_datasets:
             'train_accuracy': train_accuracy,
             'logdet_hF': logdet_hF
         }
+    
+    else:
+        with open(save_path+dataset+"_results.json", 'w') as f:
+            json.dump(results, f)
 
-    with open(save_path+"/"+dataset+"_results.json", 'w') as f:
-        json.dump(results, f)
-
-    print(f"\nDataset: {dataset}")
-    if testing:
-        print(f"Training Accuracy: {train_accuracy:.4f}")
-        print(f"Logarithm of the diagonal Fisher Information Matrix trace: {logdet_hF}")
-    print(f"Validation Accuracy: {val_accuracy:.4f}")
-    print(f"Test Accuracy: {test_accuracy:.4f}\n")
+        print(f"\nDataset: {dataset}")
+        if testing:
+            print(f"Training Accuracy: {train_accuracy:.4f}")
+            print(f"Logarithm of the diagonal Fisher Information Matrix trace: {logdet_hF}")
+        print(f"Validation Accuracy: {val_accuracy:.4f}")
+        print(f"Test Accuracy: {test_accuracy:.4f}\n")
