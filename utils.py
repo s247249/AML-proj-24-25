@@ -192,7 +192,7 @@ def build_zeroshot(chosen_dataset, device, args):
     model.image_encoder.save("/content/AML-proj-24-25/encoders/zeroshot.pt")
 
 
-def load_model(chosen_dataset, args, merged=False):
+def load_model(chosen_dataset, args):
     ft_model_path = "/content/AML-proj-24-25/encoders"
     merged_model_path = "/content/AML-proj-24-25/encoders"
     
@@ -206,7 +206,8 @@ def load_model(chosen_dataset, args, merged=False):
     pt_path = "/content/AML-proj-24-25/encoders/zeroshot.pt"
     ft_path = ft_model_path+"/"+chosen_dataset+"_finetuned.pt"
 
-    if merged:
+    # If i want to evaluate the merged model
+    if args.merged:
         ft_path = merged_model_path+"/merged_model.pt"
 
     task_vector = NonLinearTaskVector(pt_path, ft_path)

@@ -39,10 +39,7 @@ if not os.path.isfile("/content/AML-proj-24-25/encoders/zeroshot.pt"):
 
 
 for dataset in args.eval_datasets:
-    if args.merged:
-        model = load_model(dataset, args, merged=True)
-    else:
-        model = load_model(dataset, args)
+    model = load_model(dataset, args)
     model.to(device)
 
     val_loader = get_chosen_dataset(dataset+'Val', model, args, is_train=False)

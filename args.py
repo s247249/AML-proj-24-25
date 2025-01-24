@@ -58,7 +58,7 @@ def parse_arguments():
     parser.add_argument("--ls", type=float, default=0.0, help="Label smoothing.")
 
     parser.add_argument("--alpha", type=int, default=1.0, help="Scaling coefficient")
-    parser.add_argument("--mergd", type=bool, default=False, help="If the merged model is to be used")
+    parser.add_argument("--merged", type=bool, default=False, help="If the merged model is to be used")
 
     parser.add_argument(
         "--warmup_length",
