@@ -198,10 +198,13 @@ def load_model(chosen_dataset, args):
     
     if not args.batch_size==32:
         ft_model_path += "/bs_" +str(args.batch_size)
+        merged_model_path += "/bs_" +str(args.batch_size)
     elif not args.lr==1e-4:
         ft_model_path += "/lr_" + str(args.lr)
+        merged_model_path += "/lr_" + str(args.lr)
     elif not args.wd==0.0:
         ft_model_path += "/wd_" + str(args.lr)
+        merged_model_path += "/wd_" + str(args.lr)
 
     pt_path = "/content/AML-proj-24-25/encoders/zeroshot.pt"
     ft_path = ft_model_path+"/"+chosen_dataset+"_finetuned.pt"
@@ -214,7 +217,13 @@ def load_model(chosen_dataset, args):
     
     # Get chosen_dataset open-vocabulary classifier
     head = get_classification_head(args, chosen_dataset+"Val")
-    encoder = task_vector.apply_to(pt_path, scaling_coef=args.alpha)
+    
+    # The merged_model is already scaled
+    # This if statement avoids erroneus input of alpha
+    if args.merged:
+        encoder = task_vector.apply_to(pt_path, scaling_coef=1.0)
+    else:
+        encoder = task_vector.apply_to(pt_path, scaling_coef=args.alpha)
     model = ImageClassifier(encoder, head)
     model.freeze_head()
     return model
