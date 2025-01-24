@@ -15,21 +15,24 @@ save_path = "/content/AML-proj-24-25/json_results"
 
 if not args.batch_size==32:
     save_path += "/bs_" + str(args.batch_size)
-    if not os.path.isdir(save_path):
-        os.makedirs(save_path, exist_ok=True)
 elif not args.lr==1e-4:
     save_path += "/lr_" + str(args.lr)
-    if not os.path.isdir(save_path):
-        os.makedirs(save_path, exist_ok=True)
 elif not args.wd==0.0:
     save_path += "/wd_" + str(args.wd)
-    if not os.path.isdir(save_path):
-        os.makedirs(save_path, exist_ok=True)
+
+if not os.path.isdir(save_path):
+    os.makedirs(save_path, exist_ok=True)
+
 # Change directory for merged model
 if args.merged:
     save_path += "/merged"
-    if not os.path.isdir(save_path):
-        os.makedirs(save_path, exist_ok=True)
+# If evaluating alpha scaled model
+elif not args.alpha==1.0:
+    save_path += "/scaled"
+
+
+if not os.path.isdir(save_path):
+    os.makedirs(save_path, exist_ok=True)
 
 save_path += "/"
 
@@ -70,13 +73,18 @@ for dataset in args.eval_datasets:
             'logdet_hF': logdet_hF
         }
     
+    # If evaluating merged_model
+    if args.merged:
+        with open(save_path+dataset+"_merged_results.json", 'w') as f:
+            json.dump(results, f)
+    # If evaluating finetuned or alpha-scaled model
     else:
         with open(save_path+dataset+"_results.json", 'w') as f:
             json.dump(results, f)
 
-        print(f"\nDataset: {dataset}")
-        if testing:
-            print(f"Training Accuracy: {train_accuracy:.4f}")
-            print(f"Logarithm of the diagonal Fisher Information Matrix trace: {logdet_hF}")
-        print(f"Validation Accuracy: {val_accuracy:.4f}")
-        print(f"Test Accuracy: {test_accuracy:.4f}\n")
+    print(f"\nDataset: {dataset}")
+    if testing:
+        print(f"Training Accuracy: {train_accuracy:.4f}")
+        print(f"Logarithm of the diagonal Fisher Information Matrix trace: {logdet_hF}")
+    print(f"Validation Accuracy: {val_accuracy:.4f}")
+    print(f"Test Accuracy: {test_accuracy:.4f}\n")

@@ -212,6 +212,7 @@ def load_model(chosen_dataset, args):
     # If i want to evaluate the merged model
     if args.merged:
         ft_path = merged_model_path+"/merged_model.pt"
+        print(f"Loading merged model from: {ft_path}")
 
     task_vector = NonLinearTaskVector(pt_path, ft_path)
     
