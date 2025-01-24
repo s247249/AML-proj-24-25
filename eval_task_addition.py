@@ -20,8 +20,24 @@ datasets = [
     "SVHN"
     ]
 
-json_dir = "/content/AML-proj-24-25/json_results/"
+json_dir = "/content/AML-proj-24-25/json_results"
+encoders_dir = "/content/AML-proj-24-25/encoders"
+
+if not args.batch_size==32:
+    json_dir += "/bs_" + str(args.batch_size)
+    encoders_dir += "/bs_" + str(args.batch_size)
+elif not args.lr==1e-4:
+    json_dir += "/lr_" + str(args.lr)
+    encoders_dir += "/lr_" + str(args.lr)
+elif not args.wd==0.0:
+    json_dir += "/wd_" + str(args.wd)
+    encoders_dir += "/wd_" + str(args.wd)
+
+json_dir += "/"
+encoders_dir += "/"
+
 results_dict = {}
+
 
 # rebuild zeroshot models (for colab)
 if not os.path.isfile("/content/AML-proj-24-25/encoders/zeroshot.pt"):
@@ -32,7 +48,6 @@ for dataset in datasets:
         results = json.load(f)
     results_dict[dataset] = results
 
-encoders_dir = "/content/AML-proj-24-25/encoders/"
 
 print("Searching for best alpha value")
 alpha, avg_norm_acc = find_best_alpha(encoders_dir, results_dict, datasets, args, device)
@@ -64,6 +79,24 @@ results = {
 
 with open(json_dir + "alpha_results.json", 'w') as f:
     json.dump(results, f)
+
+
+save_path = "/content/AML-proj-24-25/encoders"
+
+if not args.batch_size==32:
+    save_path += "/bs_" +str(args.batch_size)
+    if not os.path.isdir(save_path):
+        os.makedirs(save_path, exist_ok=True)
+elif not args.lr==1e-4:
+    save_path += "/lr_" + str(args.lr)
+    if not os.path.isdir(save_path):
+        os.makedirs(save_path, exist_ok=True)
+elif not args.wd==0.0:
+    save_path += "/wd_" + str(args.wd)
+    if not os.path.isdir(save_path):
+        os.makedirs(save_path, exist_ok=True)
+
+merged_model.image_encoder.save(save_path + "/merged_model.pt")
 
 print(f"{results}")
 

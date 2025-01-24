@@ -2,6 +2,7 @@ import os
 import pickle
 
 import numpy as np
+import math
 import torch
 from tqdm.auto import tqdm
 from datasets.common import get_dataloader, maybe_dictionarize
@@ -214,7 +215,7 @@ def load_model(chosen_dataset, args):
 
 
 def load_merged_encoder(encoders_dir, alpha):
-    pt_path = encoders_dir+"zeroshot.pt"
+    pt_path = "/content/AML-proj-24-25/encoders/zeroshot.pt"
     encoders_paths = [
         encoders_dir+"DTD_finetuned.pt",
         encoders_dir+"EuroSAT_finetuned.pt",
@@ -267,10 +268,13 @@ def find_best_alpha(encoders_dir, results_dict, datasets, args, device):
     best_avg_norm_accuracy = 0.0
     
     
-    merged_encoder = load_merged_encoder(encoders_dir, alpha)
     
     for alpha in np.arange(0.0, 1.05, 0.05):
         norm_accuracy = 0.0
+        trunc_alpha = math.trunc(alpha*100) / 100
+        print(f"\nChecking results for value alpha = {trunc_alpha} ")
+
+        merged_encoder = load_merged_encoder(encoders_dir, trunc_alpha)
         
         #test chosen alpha on all tasks
         for dataset in datasets: 
@@ -291,7 +295,7 @@ def find_best_alpha(encoders_dir, results_dict, datasets, args, device):
         avg_norm_accuracy = norm_accuracy / len(datasets)
 
         if avg_norm_accuracy > best_avg_norm_accuracy:
-            best_alpha = alpha
+            best_alpha = trunc_alpha
             best_avg_norm_accuracy = avg_norm_accuracy
 
     
