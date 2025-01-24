@@ -217,7 +217,7 @@ def load_model(chosen_dataset, args):
     
     # Get chosen_dataset open-vocabulary classifier
     head = get_classification_head(args, chosen_dataset+"Val")
-    
+
     # The merged_model is already scaled
     # This if statement avoids erroneus input of alpha
     if args.merged:
@@ -314,4 +314,4 @@ def find_best_alpha(encoders_dir, results_dict, datasets, args, device):
             best_avg_norm_accuracy = avg_norm_accuracy
 
     
-    return best_alpha, best_avg_norm_accuracy
+    return best_alpha, best_avg_norm_accuracy * 100
