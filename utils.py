@@ -5,12 +5,15 @@ import numpy as np
 import math
 import torch
 from tqdm.auto import tqdm
-from datasets.common import get_dataloader, maybe_dictionarize
-from datasets.registry import get_dataset
+from datasets.common import get_dataloader, maybe_dictionarize, SubsetSampler
+from datasets.registry import get_dataset, GenericDataset
 
 from task_vectors import NonLinearTaskVector
 from modeling import ImageClassifier, ImageEncoder
 from heads import get_classification_head
+from collections import Counter
+from torch.utils.data import Subset
+import random
 
 
 def torch_save(model, save_path):
@@ -51,10 +54,13 @@ def train_diag_fim_logtr(
         batch_size=args.batch_size,
         num_workers=0
     )
-    data_loader = torch.utils.data.DataLoader(
-        dataset.train_dataset, 
-        batch_size=args.batch_size, 
-        num_workers=0, shuffle=False)
+    if args.balanced:
+        data_loader = rebalance_dataset(dataset.train_dataset, args, is_train=False)
+    else:
+        data_loader = torch.utils.data.DataLoader(
+            dataset.train_dataset, 
+            batch_size=args.batch_size, 
+            num_workers=0, shuffle=False)
     
     fim = {}
     for name, param in model.named_parameters():
@@ -103,6 +109,7 @@ def train_diag_fim_logtr(
 # Added Functions:
 ##################################################
 
+
 def get_chosen_dataset(chosen_dataset, model, args, is_train=False):
     """
     Function to load the requested dataset split (training, validation or test).
@@ -118,11 +125,9 @@ def get_chosen_dataset(chosen_dataset, model, args, is_train=False):
     else:
         prep = model.val_preprocess
     
-    bs = args.batch_size
-    
     dataset = get_dataset(
     chosen_dataset, preprocess=prep,
-    location=args.data_location, batch_size=bs, num_workers=2)
+    location=args.data_location, batch_size=args.batch_size, num_workers=2)
     dataset_loader = get_dataloader(dataset, is_train=is_train, args=args)
 
     return dataset_loader
@@ -189,30 +194,41 @@ def build_zeroshot(chosen_dataset, device, args):
     model = ImageClassifier(encoder, head) # Build full model
     model.freeze_head() # Freeze the classification head
 
-    model.image_encoder.save("/content/AML-proj-24-25/encoders/zeroshot.pt")
+    # model.image_encoder.save("/content/AML-proj-24-25/encoders/zeroshot.pt")
+    model.image_encoder.save("./encoders/zeroshot.pt")
+
+
+# To avoid circular import in finetune_best_logtr.py and finetune_best_eval.py
+def load_zeroshot(dataset_name, args, device):
+    encoder = ImageEncoder(args) # Pre-trained CLIP ViT backbone
+    encoder.to(device)
+
+    # Get chosen_dataset open-vocabulary classifier
+    head = get_classification_head(args, dataset_name+"Val")
+    model = ImageClassifier(encoder, head) # Build full model
+    model.freeze_head() # Freeze the classification head
+    return model
 
 
 def load_model(chosen_dataset, args):
-    ft_model_path = "/content/AML-proj-24-25/encoders"
-    merged_model_path = "/content/AML-proj-24-25/encoders"
+    # ft_model_path = "/content/AML-proj-24-25/encoders"
+    # merged_model_path = "/content/AML-proj-24-25/encoders"
+    ft_model_path = "./encoders"
     
     if not args.batch_size==32:
         ft_model_path += "/bs_" +str(args.batch_size)
-        merged_model_path += "/bs_" +str(args.batch_size)
     elif not args.lr==1e-4:
         ft_model_path += "/lr_" + str(args.lr)
-        merged_model_path += "/lr_" + str(args.lr)
     elif not args.wd==0.0:
         ft_model_path += "/wd_" + str(args.lr)
-        merged_model_path += "/wd_" + str(args.lr)
+    elif args.balanced:
+        ft_model_path += "/balanced"
+    else:
+        ft_model_path += "/base"
 
-    pt_path = "/content/AML-proj-24-25/encoders/zeroshot.pt"
+    # pt_path = "/content/AML-proj-24-25/encoders/zeroshot.pt"
+    pt_path = "./encoders/zeroshot.pt"
     ft_path = ft_model_path+"/"+chosen_dataset+"_finetuned.pt"
-
-    # If i want to evaluate the merged model
-    if args.merged:
-        ft_path = merged_model_path+"/merged_model.pt"
-        print(f"Loading merged model from: {ft_path}")
 
     task_vector = NonLinearTaskVector(pt_path, ft_path)
     
@@ -222,7 +238,7 @@ def load_model(chosen_dataset, args):
     # The merged_model is already scaled
     # This if statement avoids erroneus input of alpha
     if args.merged:
-        encoder = task_vector.apply_to(pt_path, scaling_coef=1.0)
+        encoder = load_merged_encoder(ft_model_path + "/", alpha=args.alpha)
     else:
         encoder = task_vector.apply_to(pt_path, scaling_coef=args.alpha)
     model = ImageClassifier(encoder, head)
@@ -231,7 +247,8 @@ def load_model(chosen_dataset, args):
 
 
 def load_merged_encoder(encoders_dir, alpha):
-    pt_path = "/content/AML-proj-24-25/encoders/zeroshot.pt"
+    # pt_path = "/content/AML-proj-24-25/encoders/zeroshot.pt"
+    pt_path = "./encoders/zeroshot.pt"
     encoders_paths = [
         encoders_dir+"DTD_finetuned.pt",
         encoders_dir+"EuroSAT_finetuned.pt",
@@ -316,3 +333,180 @@ def find_best_alpha(encoders_dir, results_dict, datasets, args, device):
 
     
     return best_alpha, best_avg_norm_accuracy * 100
+
+
+def get_balanced_dataloader(chosen_dataset, model, args, is_train=False):
+    
+    if is_train:
+        prep = model.train_preprocess
+    else:
+        prep = model.val_preprocess
+
+    # Load the initial dataset
+    dataset = get_dataset(
+    chosen_dataset, preprocess=prep,
+    location=args.data_location, batch_size=args.batch_size, num_workers=2)
+    
+    # Get a balanced dataset loader
+    if is_train:
+        dataset_loader = rebalance_dataset(dataset.train_dataset, args, is_train)
+    else:
+        dataset_loader = rebalance_dataset(dataset.test_dataset, args, is_train)
+
+    return dataset_loader
+
+
+# def rebalance_dataset(dataset, args, is_train=False):
+#     if isinstance(dataset, Subset):
+#         dataset = dataset.dataset
+
+#     # Some dataseets use ._samples instead of .sample
+#     if hasattr(dataset, '_samples'):
+#         samples_attr = '_samples'
+#     elif hasattr(dataset, 'samples'):
+#         samples_attr = 'samples'
+
+        
+        
+#     labels = [label for _, label in getattr(dataset, samples_attr)]
+#     class_counts = Counter(labels)
+    
+#     # Least represented class count
+#     min_count = min(class_counts.values())
+
+#     # Create a list of indices for rebalancing
+#     class_indices = {class_label: [] for class_label in class_counts}
+#     for idx, (_, label) in enumerate(getattr(dataset, samples_attr)):
+#         class_indices[label].append(idx)
+
+#     # Create a list to hold the new indices with balanced representation
+#     balanced_indices = []
+#     for class_label, indices in class_indices.items():
+#         # Take only `min_count` samples from this class (determinism)
+#         balanced_indices.extend(indices[:min_count])
+    
+#     if is_train:
+#         random.shuffle(balanced_indices)
+
+#     sampler = SubsetSampler(balanced_indices)
+#     dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, sampler=sampler)
+#     return dataloader
+
+
+
+# def rebalance_dataset(dataset, args, is_train=False):
+#     if isinstance(dataset, Subset):
+#         dataset = dataset.dataset
+
+#     # Handle datasets with different attribute names for samples
+#     if hasattr(dataset, '_samples'):
+#         samples_attr = '_samples'
+#     elif hasattr(dataset, 'samples'):
+#         samples_attr = 'samples'
+#     elif hasattr(dataset, 'data') and hasattr(dataset, 'targets'):  # Special case for MNIST
+#         samples_attr = 'mnist'
+#     else:
+#         raise AttributeError(f"Dataset does not have expected attributes for sample data.")
+    
+#     # If using MNIST, we use 'data' and 'targets' instead of 'samples'
+#     if samples_attr == 'mnist':
+#         data = dataset.data
+#         labels = dataset.targets
+#     else:
+#         data = getattr(dataset, samples_attr)
+#         labels = [label for _, label in data]
+
+#     # Ensure that labels are integers (this is important for consistency)
+#     if samples_attr == 'mnist':
+#         labels = labels.tolist()  # Convert tensor to a list of integers
+#     else:
+#         labels = [label for _, label in data]  # For other datasets, we already have this in list format
+
+#     class_counts = Counter(labels)
+    
+#     # Least represented class count
+#     min_count = min(class_counts.values())
+
+#     # Create a list of indices for rebalancing
+#     class_indices = {class_label: [] for class_label in class_counts}
+    
+#     if samples_attr == 'mnist':  # Special case for MNIST
+#         for idx, label in enumerate(labels):
+#             class_indices[label].append(idx)  # Here, label is already an int
+#     else:
+#         for idx, (_, label) in enumerate(data):
+#             class_indices[label].append(idx)
+
+#     # Create a list to hold the new indices with balanced representation
+#     balanced_indices = []
+#     for class_label, indices in class_indices.items():
+#         # Take only `min_count` samples from this class (determinism)
+#         balanced_indices.extend(indices[:min_count])
+    
+#     if is_train:
+#         random.shuffle(balanced_indices)
+
+#     sampler = SubsetSampler(balanced_indices)
+#     dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, sampler=sampler)
+#     return dataloader
+
+def rebalance_dataset(dataset, args, is_train=False):
+    if isinstance(dataset, Subset):
+        dataset = dataset.dataset
+
+    # Handle datasets with different attribute names for samples
+    if hasattr(dataset, '_samples'):
+        samples_attr = '_samples'
+    elif hasattr(dataset, 'samples'):
+        samples_attr = 'samples'
+    elif hasattr(dataset, 'data') and hasattr(dataset, 'targets'):  # Special case for MNIST
+        samples_attr = 'mnist'
+    elif hasattr(dataset, 'data') and hasattr(dataset, 'labels'):  # Special case for SVHN
+        samples_attr = 'svhn'
+    else:
+        raise AttributeError(f"Dataset does not have expected attributes for sample data.")
+    
+    # If using MNIST, we use 'data' and 'targets' instead of 'samples'
+    if samples_attr == 'mnist':
+        data = dataset.data
+        labels = dataset.targets
+    elif samples_attr == 'svhn':  # Special case for SVHN
+        data = dataset.data
+        labels = dataset.labels
+    else:
+        data = getattr(dataset, samples_attr)
+        labels = [label for _, label in data]
+
+    # Ensure that labels are integers (this is important for consistency)
+    if samples_attr == 'mnist' or samples_attr == 'svhn':
+        labels = labels.tolist()  # Convert tensor to a list of integers
+    else:
+        labels = [label for _, label in data]  # For other datasets, we already have this in list format
+
+    class_counts = Counter(labels)
+    
+    # Least represented class count
+    min_count = min(class_counts.values())
+
+    # Create a list of indices for rebalancing
+    class_indices = {class_label: [] for class_label in class_counts}
+    
+    if samples_attr == 'mnist' or samples_attr == 'svhn':  # Special case for MNIST and SVHN
+        for idx, label in enumerate(labels):
+            class_indices[label].append(idx)  # Now label is an int
+    else:
+        for idx, (_, label) in enumerate(data):
+            class_indices[label].append(idx)
+
+    # Create a list to hold the new indices with balanced representation
+    balanced_indices = []
+    for class_label, indices in class_indices.items():
+        # Take only `min_count` samples from this class (determinism)
+        balanced_indices.extend(indices[:min_count])
+    
+    if is_train:
+        random.shuffle(balanced_indices)
+
+    sampler = SubsetSampler(balanced_indices)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, sampler=sampler)
+    return dataloader

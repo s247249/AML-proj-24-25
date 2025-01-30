@@ -3,7 +3,7 @@ import torch.optim as optim
 import torch.nn as nn
 import os
 
-from utils import get_chosen_dataset, fine_tune_model, build_zeroshot
+from utils import get_chosen_dataset, fine_tune_model, get_balanced_dataloader
 
 from args import parse_arguments
 from modeling import ImageClassifier, ImageEncoder
@@ -34,14 +34,17 @@ for dataset in args.train_dataset:
     model = ImageClassifier(encoder, head) # Build full model
     model.freeze_head() # Freeze the classification head
 
-    # Added
-    save_path = "/content/AML-proj-24-25/encoders"
+    save_path = "./encoders"
     model.image_encoder.save(save_path + "/zeroshot.pt")
 
     model.to(device)
 
-    train_loader = get_chosen_dataset(dataset+'Val', model, args, is_train=True)
-    val_loader = get_chosen_dataset(dataset+'Val', model, args, is_train=False)
+    if args.balanced:
+        train_loader = get_balanced_dataloader(dataset+'Val', model, args, is_train=True)
+        val_loader = get_balanced_dataloader(dataset+'Val', model, args, is_train=False)
+    else:
+        train_loader = get_chosen_dataset(dataset+'Val', model, args, is_train=True)
+        val_loader = get_chosen_dataset(dataset+'Val', model, args, is_train=False)
 
     # Loss function
     loss_fn = nn.CrossEntropyLoss()
@@ -51,8 +54,11 @@ for dataset in args.train_dataset:
 
     fine_tune_model(model, train_loader, val_loader, datasets[dataset], optimizer, loss_fn, device)
 
-
-    if not args.batch_size==32:
+    if args.balanced:
+        save_path += "/balanced"
+        if not os.path.isdir(save_path):
+            os.makedirs(save_path, exist_ok=True)
+    elif not args.batch_size==32:
         save_path += "/bs_" +str(args.batch_size)
         if not os.path.isdir(save_path):
             os.makedirs(save_path, exist_ok=True)
@@ -64,6 +70,11 @@ for dataset in args.train_dataset:
         save_path += "/wd_" + str(args.wd)
         if not os.path.isdir(save_path):
             os.makedirs(save_path, exist_ok=True)
+    else:
+        save_path += "/base"
+        if not os.path.isdir(save_path):
+            os.makedirs(save_path, exist_ok=True)
+
 
 
     # Save fine-tuned weights (don’t need to store classification heads)

@@ -15,7 +15,7 @@ python finetune.py \
 --batch-size=32 \
 --lr=1e-4 \
 --wd=0.0 \
---eval-datasets=DTD
+--train-dataset=DTD
 
 python eval_single_task.py \
 --data-location=/path/to/datasets/ \

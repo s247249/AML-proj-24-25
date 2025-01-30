@@ -59,6 +59,7 @@ def parse_arguments():
 
     parser.add_argument("--alpha", type=float, default=1.0, help="Scaling coefficient")
     parser.add_argument("--merged", type=bool, default=False, help="If the merged model is to be used")
+    parser.add_argument("--balanced", type=bool, default=False, help="If you want to use the rebalanced datasets")
 
     parser.add_argument(
         "--warmup_length",
