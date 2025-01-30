@@ -1,0 +1,6 @@
+{
+    "test_accuracy": 97.5, 
+    "validation_accuracy": 77.30496453900709, 
+    "train_accuracy": 99.98029944838456, 
+    "logdet_hF": 14.099003791809082
+}

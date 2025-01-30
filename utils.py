@@ -2,14 +2,18 @@ import os
 import pickle
 
 import numpy as np
+import math
 import torch
 from tqdm.auto import tqdm
-from datasets.common import get_dataloader, maybe_dictionarize
-from datasets.registry import get_dataset
-import modeling 
-import heads
+from datasets.common import get_dataloader, maybe_dictionarize, SubsetSampler
+from datasets.registry import get_dataset, GenericDataset
 
-
+from task_vectors import NonLinearTaskVector
+from modeling import ImageClassifier, ImageEncoder
+from heads import get_classification_head
+from collections import Counter
+from torch.utils.data import Subset
+import random
 
 
 def torch_save(model, save_path):
@@ -50,10 +54,13 @@ def train_diag_fim_logtr(
         batch_size=args.batch_size,
         num_workers=0
     )
-    data_loader = torch.utils.data.DataLoader(
-        dataset.train_dataset, 
-        batch_size=args.batch_size, 
-        num_workers=0, shuffle=False)
+    if args.balanced:
+        data_loader = rebalance_dataset(dataset.train_dataset, args, is_train=False)
+    else:
+        data_loader = torch.utils.data.DataLoader(
+            dataset.train_dataset, 
+            batch_size=args.batch_size, 
+            num_workers=0, shuffle=False)
     
     fim = {}
     for name, param in model.named_parameters():
@@ -98,203 +105,311 @@ def train_diag_fim_logtr(
 
     return fim_trace
 
-# Access dataset more easily
-def get_split_loader(dataset_name, split, model, args):
-    if split == "Validation":
-        dataset = get_dataset(
-            dataset_name + "Val", preprocess=model.val_preprocess,
-            location=args.data_location, batch_size=args.batch_size, num_workers=2
-        )
-        loader = get_dataloader(dataset, is_train=False, args=args)
-    elif split == "Test":
-        dataset = get_dataset(
-            dataset_name, preprocess=model.val_preprocess,
-            location=args.data_location, batch_size=args.batch_size, num_workers=2
-        )
-        loader = get_dataloader(dataset, is_train=False, args=args)
-    else:  # Assuming "Train" split
-        dataset = get_dataset(
-            dataset_name + "Val", preprocess=model.val_preprocess,
-            location=args.data_location, batch_size=args.batch_size, num_workers=2
-        )
-        loader = get_dataloader(dataset, is_train=True, args=args)
-
-    return loader
+##################################################
+# Added Functions:
+##################################################
 
 
+def get_chosen_dataset(chosen_dataset, model, args, is_train=False):
+    """
+    Function to load the requested dataset split (training, validation or test).
+    Args:
+        chosen_dataset: string containing the name of the dataset. Add 'Val' for training or validation split
+        model: the model to be used
+        args: provided args
+        is_train: default=False. Set to True to obtain the training split 
+    """
 
-# Function to evaluate the model accuracy 
-def evaluate_model(model, dataloader, device, split):
-    model.eval()
-    total_samples = 0
-    correct_predictions = 0
+    if is_train:
+        prep = model.train_preprocess
+    else:
+        prep = model.val_preprocess
+    
+    dataset = get_dataset(
+    chosen_dataset, preprocess=prep,
+    location=args.data_location, batch_size=args.batch_size, num_workers=2)
+    dataset_loader = get_dataloader(dataset, is_train=is_train, args=args)
 
-    with torch.no_grad():
-        for batch in tqdm(dataloader, desc=f"Evaluating on {split} split ..."):
+    return dataset_loader
+
+
+def fine_tune_model(model, train_loader, val_loader, num_epochs, optimizer, loss_fn, device):
+    for epoch in range(num_epochs):
+        running_loss = 0.0
+        correct = 0
+        total = 0
+        for batch in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{num_epochs}", leave=False):
             data = maybe_dictionarize(batch)
-            inputs, labels = data["images"].to(device), data["labels"].to(device)
-            outputs = model(inputs)
-            _, preds = outputs.max(1)
-            correct_predictions += preds.eq(labels).sum().item()
-            total_samples += labels.size(0)
+            images, labels = data["images"].to(device), data["labels"].to(device)
+            
+            model.train()
 
-    return correct_predictions / total_samples
+            optimizer.zero_grad()
+            outputs = model(images)
+            loss = loss_fn(outputs, labels)
+            loss.backward()
+            optimizer.step()
+            
+            running_loss += loss.item()
+            _, predicted = torch.max(outputs, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
 
-"""
-eval_task_addition_scale.py related function
-"""
-# Function to find the best alpha based on normalized accuracy
-def find_best_alpha(task_vectors, dataset_names, fine_tuned_accuracies,split, args):
-    alpha_values = [round(i * 0.05, 2) for i in range(21)]
-    best_alpha = None
-    best_ana = float("-inf")
-    results = []
-
-    for alpha in alpha_values:
-        print(f"Testing with alpha = {alpha}")
-        normalized_accuracies, _ = compute_absolute_and_normalized(
-            alpha, task_vectors, dataset_names, fine_tuned_accuracies,split, args
-        )
-        current_ana = np.mean(normalized_accuracies)
-        results.append({"Alpha": alpha, "Average Normalized Accuracy": current_ana})
-
-        if current_ana > best_ana:
-            best_ana = current_ana
-            best_alpha = alpha
-
-        print(f"Alpha = {alpha}, Average Normalized Accuracy the {split} split = {current_ana:.4f}")
-
-    return best_alpha, best_ana, results
-
-
-"""
-eval_task_addition.py related functions
-"""
-
-# Function to find the best alpha based on normalized accuracy
-def find_best_alpha(task_vectors, dataset_names, fine_tuned_accuracies,split, args):
-    alpha_values = [round(i * 0.05, 2) for i in range(21)]
-    best_alpha = None
-    best_ana = float("-inf")
-    results = []
-
-    for alpha in alpha_values:
-        print(f"Testing with alpha = {alpha}")
-        normalized_accuracies, _ = compute_absolute_and_normalized(
-            alpha, task_vectors, dataset_names, fine_tuned_accuracies,split, args
-        )
-        current_ana = np.mean(normalized_accuracies)
-        results.append({"Alpha": alpha, "Average Normalized Accuracy": current_ana})
-
-        if current_ana > best_ana:
-            best_ana = current_ana
-            best_alpha = alpha
-
-        print(f"Alpha = {alpha}, Average Normalized Accuracy the {split} split = {current_ana:.4f}")
-
-    return best_alpha, best_ana, results
-
-
-# Function to compute absolute accuracies given alpha, task vectors, datasets, but also the logtr if the split is "Train"
-def compute_absolute_accuracy_and_logtr(alpha, task_vectors, dataset_names, split, args):
-    merged_vector = sum(task_vector * alpha for task_vector in task_vectors)
-    merged_encoder = merged_vector.apply_to(f"/content/Model/Batch{args.batch_size}/zeroshot/DTD_zeroshot.pt", scaling_coef=1.0)
-  
-    absolute_accuracies = []
-    logtr_all = {}
-    for dataset_name in dataset_names:
-        # Get the classification head for each datasets
-        classification_head = heads.get_classification_head(args, dataset_name + "Val")
-        model = modeling.ImageClassifier(merged_encoder, classification_head).to(args.device)
-        loader= get_split_loader(dataset_name, split, model, args)
-        accuracy = evaluate_model(model, loader, args.device, split)
-        absolute_accuracies.append(accuracy)
-        if split == "Train":
-            # Compute logtr_hF
-            samples_nr = 2000  # Number of samples to accumulate gradients
-            logtr = train_diag_fim_logtr(args, model, dataset_name, samples_nr)
-            logtr_all[dataset_name] = logtr
-
-    if split == "Train":
-        return absolute_accuracies, logtr_all
-    return absolute_accuracies
-
-# Function to compute absolute accuracy, normalized accuracy and logtr (for Train split)
-def compute_absolute_and_normalized(alpha, task_vectors, dataset_names, fine_tuned_accuracies, split, args):
-    if split == "Train":
-        absolute_accuracies, logtr = compute_absolute_accuracy_and_logtr(alpha, task_vectors, dataset_names, split, args)
-    else:
-        absolute_accuracies = compute_absolute_accuracy_and_logtr(alpha, task_vectors, dataset_names, split, args)  
-
-    normalized_accuracies = []
-
-    for i in range(len(dataset_names)):
-        abs_acc = absolute_accuracies[i]
-        dataset_name = dataset_names[i]
-        norm_acc = abs_acc / fine_tuned_accuracies[dataset_name]
-        normalized_accuracies.append(norm_acc)
-
-    if split == "Train":
-        return absolute_accuracies, normalized_accuracies, logtr
-
-    return absolute_accuracies, normalized_accuracies
-
-# Function to evaluate on test splits and compute averages
-def evaluate_on_split(best_alpha, task_vectors, dataset_names, fine_tuned_accuracies,split, args):
-    # Compute absolute and normalized accuracies
-    if split == "Train":
-         absolute_accuracies, normalized_accuracies, logtr = compute_absolute_and_normalized(best_alpha, task_vectors, dataset_names, fine_tuned_accuracies, split, args)
-    else:
-        absolute_accuracies, normalized_accuracies = compute_absolute_and_normalized(
-        best_alpha, task_vectors, dataset_names, fine_tuned_accuracies,split, args
-    )
-
-    # Initialize results container
-    results = []
-    results.append({
-            f"Best alpha evaluated on {split} split": best_alpha,
-        })
-    
-    if split == "Train":
-        for dataset_name, abs_acc, norm_acc in zip(dataset_names, absolute_accuracies, normalized_accuracies):
-            results.append({ 
-                "Dataset": dataset_name,
-                f"Absolute Accuracy on {split} split": abs_acc,
-                f"Normalized Accuracy on {split} split": norm_acc,
-                "logtr": logtr[dataset_name]
-            })
-
-        # Calculate averages
-        avg_absolute_accuracy = sum(absolute_accuracies) / len(absolute_accuracies)
-        avg_normalized_accuracy = sum(normalized_accuracies) / len(normalized_accuracies)
-
-        # Append averages to the results
-        results.append({
-            f"Average Absolute Accuracy on {split} split": avg_absolute_accuracy,
-            f"Average Normalized Accuracy on {split} split": avg_normalized_accuracy
-        })
-
-
+        # Print statistics for the epoch
+        train_accuracy = 100 * correct / total
+        print(f"\n\tEpoch {epoch + 1}/{num_epochs}: \nTraining Loss: {running_loss / len(train_loader)} \nTraining Accuracy: {train_accuracy}%")
         
+
+        val_loss = 0.0
+        val_correct = 0
+        val_total = 0
+        
+        with torch.no_grad():
+            for batch in val_loader:
+                data = maybe_dictionarize(batch)
+                images, labels = data["images"].to(device), data["labels"].to(device)
+                
+                model.eval()
+                
+                outputs = model(images)
+                loss = loss_fn(outputs, labels)
+                val_loss += loss.item()
+                _, predicted = torch.max(outputs, 1)
+                val_total += labels.size(0)
+                val_correct += (predicted == labels).sum().item()
+        
+        val_accuracy = 100 * val_correct / val_total
+        print(f"Validation Loss: {val_loss / len(val_loader)} \nValidation Accuracy: {val_accuracy}%")
+
+
+def build_zeroshot(chosen_dataset, device, args):
+    # Remaking the zeroshot checkpoint to speed up operations in colab
+
+    # Instantiate a full model architecture
+    encoder = ImageEncoder(args) # Pre-trained CLIP ViT backbone
+    encoder.to(device)
+
+    # Get chosen_dataset open-vocabulary classifier
+    head = get_classification_head(args, chosen_dataset+"Val")
+    model = ImageClassifier(encoder, head) # Build full model
+    model.freeze_head() # Freeze the classification head
+
+    # model.image_encoder.save("/content/AML-proj-24-25/encoders/zeroshot.pt")
+    model.image_encoder.save("./encoders/zeroshot.pt")
+
+
+# To avoid circular import in finetune_best_logtr.py and finetune_best_eval.py
+def load_zeroshot(dataset_name, args, device):
+    encoder = ImageEncoder(args) # Pre-trained CLIP ViT backbone
+    encoder.to(device)
+
+    # Get chosen_dataset open-vocabulary classifier
+    head = get_classification_head(args, dataset_name+"Val")
+    model = ImageClassifier(encoder, head) # Build full model
+    model.freeze_head() # Freeze the classification head
+    return model
+
+
+def load_model(chosen_dataset, args):
+    # ft_model_path = "/content/AML-proj-24-25/encoders"
+    # merged_model_path = "/content/AML-proj-24-25/encoders"
+    ft_model_path = "./encoders"
     
+    if not args.batch_size==32:
+        ft_model_path += "/bs_" +str(args.batch_size)
+    elif not args.lr==1e-4:
+        ft_model_path += "/lr_" + str(args.lr)
+    elif not args.wd==0.0:
+        ft_model_path += "/wd_" + str(args.lr)
+    elif args.balanced:
+        ft_model_path += "/balanced"
     else:
-        for dataset_name, abs_acc, norm_acc in zip(dataset_names, absolute_accuracies, normalized_accuracies):
-            results.append({
-                "Dataset": dataset_name,
-                f"Absolute Accuracy on {split} split": abs_acc,
-                f"Normalized Accuracy on {split} split": norm_acc
-            })
+        ft_model_path += "/base"
 
-        # Calculate averages
-        avg_absolute_accuracy = sum(absolute_accuracies) / len(absolute_accuracies)
-        avg_normalized_accuracy = sum(normalized_accuracies) / len(normalized_accuracies)
+    # pt_path = "/content/AML-proj-24-25/encoders/zeroshot.pt"
+    pt_path = "./encoders/zeroshot.pt"
+    ft_path = ft_model_path+"/"+chosen_dataset+"_finetuned.pt"
 
-        # Append averages to the results
-        results.append({
-            f"Average Absolute Accuracy on {split} split": avg_absolute_accuracy,
-            f"Average Normalized Accuracy on {split} split": avg_normalized_accuracy
-        })
+    task_vector = NonLinearTaskVector(pt_path, ft_path)
+    
+    # Get chosen_dataset open-vocabulary classifier
+    head = get_classification_head(args, chosen_dataset+"Val")
 
-    return results
+    # The merged_model is already scaled
+    # This if statement avoids erroneus input of alpha
+    if args.merged:
+        encoder = load_merged_encoder(ft_model_path + "/", alpha=args.alpha)
+    else:
+        encoder = task_vector.apply_to(pt_path, scaling_coef=args.alpha)
+    model = ImageClassifier(encoder, head)
+    model.freeze_head()
+    return model
 
 
+def load_merged_encoder(encoders_dir, alpha):
+    # pt_path = "/content/AML-proj-24-25/encoders/zeroshot.pt"
+    pt_path = "./encoders/zeroshot.pt"
+    encoders_paths = [
+        encoders_dir+"DTD_finetuned.pt",
+        encoders_dir+"EuroSAT_finetuned.pt",
+        encoders_dir+"GTSRB_finetuned.pt",
+        encoders_dir+"MNIST_finetuned.pt",
+        encoders_dir+"RESISC45_finetuned.pt",
+        encoders_dir+"SVHN_finetuned.pt",
+    ]   
+
+    # Get task vectors
+    task_vectors = []
+    for ft_path in encoders_paths:
+        task_vector = NonLinearTaskVector(pt_path, ft_path)
+        task_vectors.append(task_vector)
+    
+    # Add task vectors
+    task_vec_add = task_vectors[0]
+    for i in range(1, len(task_vectors)):
+        task_vec_add += task_vectors[i]
+
+    # Build the merged encoder
+    merged_encoder = task_vec_add.apply_to(pt_path, scaling_coef=alpha)
+    return merged_encoder
+
+
+def evaluate_accuracy(model, dataloader, device):
+    model.eval()
+
+    correct = 0
+    total = 0
+    
+    with torch.no_grad():
+        for batch in dataloader:
+            data = maybe_dictionarize(batch)
+            images, labels = data["images"].to(device), data["labels"].to(device)
+            
+            outputs = model(images)
+            _, predicted = torch.max(outputs, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+    
+    accuracy = 100 * correct / total
+    
+    return accuracy
+
+
+def find_best_alpha(encoders_dir, results_dict, datasets, args, device):
+    
+    best_alpha = -1.0
+    best_avg_norm_accuracy = 0.0
+    
+    for alpha in np.arange(0.0, 1.05, 0.05):
+        norm_accuracy = 0.0
+        trunc_alpha = math.trunc(alpha*100) / 100
+        print(f"\nChecking results for value alpha = {trunc_alpha} ")
+
+        merged_encoder = load_merged_encoder(encoders_dir, trunc_alpha)
+        
+        #test chosen alpha on all tasks
+        for dataset in datasets: 
+            # build the merged_model for specific dataset           
+            head = get_classification_head(args, dataset+"Val")
+            merged_model = ImageClassifier(merged_encoder, head)
+            merged_model.freeze_head()
+            merged_model.to(device)
+
+            # load the dataset
+            val_loader = get_chosen_dataset(dataset+'Val', merged_model, args, is_train=False)
+            # evaluate accuracy for specific dataset
+            merged_accuracy = evaluate_accuracy(merged_model, val_loader,  device)
+
+            base_accuracy = results_dict[dataset].get('validation_accuracy')
+            norm_accuracy += merged_accuracy / base_accuracy
+
+        avg_norm_accuracy = norm_accuracy / len(datasets)
+
+        if avg_norm_accuracy > best_avg_norm_accuracy:
+            best_alpha = trunc_alpha
+            best_avg_norm_accuracy = avg_norm_accuracy
+
+    
+    return best_alpha, best_avg_norm_accuracy * 100
+
+
+def get_balanced_dataloader(chosen_dataset, model, args, is_train=False):
+    
+    if is_train:
+        prep = model.train_preprocess
+    else:
+        prep = model.val_preprocess
+
+    # Load the initial dataset
+    dataset = get_dataset(
+    chosen_dataset, preprocess=prep,
+    location=args.data_location, batch_size=args.batch_size, num_workers=2)
+    
+    # Get a balanced dataset loader
+    if is_train:
+        dataset_loader = rebalance_dataset(dataset.train_dataset, args, is_train)
+    else:
+        dataset_loader = rebalance_dataset(dataset.test_dataset, args, is_train)
+
+    return dataset_loader
+
+def rebalance_dataset(dataset, args, is_train=False):
+    if isinstance(dataset, Subset):
+        dataset = dataset.dataset
+
+    # Handle datasets with different attribute names for samples
+    if hasattr(dataset, '_samples'):
+        samples_attr = '_samples'
+    elif hasattr(dataset, 'samples'):
+        samples_attr = 'samples'
+    elif hasattr(dataset, 'data') and hasattr(dataset, 'targets'):  # Special case for MNIST
+        samples_attr = 'mnist'
+    elif hasattr(dataset, 'data') and hasattr(dataset, 'labels'):  # Special case for SVHN
+        samples_attr = 'svhn'
+    else:
+        raise AttributeError(f"Dataset does not have expected attributes for sample data.")
+    
+    # If using MNIST, we use 'data' and 'targets' instead of 'samples'
+    if samples_attr == 'mnist':
+        data = dataset.data
+        labels = dataset.targets
+    elif samples_attr == 'svhn':  # Special case for SVHN
+        data = dataset.data
+        labels = dataset.labels
+    else:
+        data = getattr(dataset, samples_attr)
+        labels = [label for _, label in data]
+
+    # Ensure that labels are integers (this is important for consistency)
+    if samples_attr == 'mnist' or samples_attr == 'svhn':
+        labels = labels.tolist()  # Convert tensor to a list of integers
+    else:
+        labels = [label for _, label in data]  # For other datasets, we already have this in list format
+
+    class_counts = Counter(labels)
+    
+    # Least represented class count
+    min_count = min(class_counts.values())
+
+    # Create a list of indices for rebalancing
+    class_indices = {class_label: [] for class_label in class_counts}
+    
+    if samples_attr == 'mnist' or samples_attr == 'svhn':  # Special case for MNIST and SVHN
+        for idx, label in enumerate(labels):
+            class_indices[label].append(idx)  # Now label is an int
+    else:
+        for idx, (_, label) in enumerate(data):
+            class_indices[label].append(idx)
+
+    # Create a list to hold the new indices with balanced representation
+    balanced_indices = []
+    for class_label, indices in class_indices.items():
+        # Take only `min_count` samples from this class (determinism)
+        balanced_indices.extend(indices[:min_count])
+    
+    if is_train:
+        random.shuffle(balanced_indices)
+
+    sampler = SubsetSampler(balanced_indices)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, sampler=sampler)
+    return dataloader

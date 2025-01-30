@@ -1,78 +1,107 @@
 import torch
 import json
-from datasets.registry import get_dataset
+import os
+
 from args import parse_arguments
-from datasets.common import get_dataloader
-from modeling import ImageClassifier
-from heads import get_classification_head
-from task_vectors import NonLinearTaskVector
-from datasets.common import maybe_dictionarize
-from tqdm import tqdm
-from utils import *
+from utils import train_diag_fim_logtr, get_chosen_dataset, build_zeroshot, load_model, evaluate_accuracy, get_balanced_dataloader
 
-if __name__ == "__main__":
-    args = parse_arguments()    
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # List of dataset names
-    dataset_names = ["DTD", "EuroSAT", "GTSRB", "MNIST", "RESISC45", "SVHN"]
+if __name__ == '__main__':
+
+    print(f"os: {os.getcwd()}")
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Device: {device}")
+    args = parse_arguments()
+
+    testing = True
+
+    # save_path = "/content/AML-proj-24-25/json_results"
+    save_path = "./json_results"
+
+    if not args.batch_size==32:
+        save_path += "/bs_" + str(args.batch_size)
+    elif not args.lr==1e-4:
+        save_path += "/lr_" + str(args.lr)
+    elif not args.wd==0.0:
+        save_path += "/wd_" + str(args.wd)
+    elif args.balanced:
+        save_path += "/balanced"
+    else:
+        save_path += "/base"
+    # Make sur the directory exists
+    if not os.path.isdir(save_path):
+        os.makedirs(save_path, exist_ok=True)
+
+    # Change directory for merged model
+    if args.merged:
+        json_path = str(save_path)
+        save_path += "/merged"
+    # If evaluating alpha scaled model
+    elif not args.alpha==1.0:
+        save_path += "/scaled"
+    # Make sur the directory exists
+    if not os.path.isdir(save_path):
+        os.makedirs(save_path, exist_ok=True)
+
+    save_path += "/"
+
+    # Used for colab# rebuild zeroshot model (for colab)
+
+    # if not os.path.isfile("/content/AML-proj-24-25/encoders/zeroshot.pt"):
+    #    build_zeroshot ("DTD", device, args)
+    if not os.path.isfile("./encoders/zeroshot.pt"):
+        build_zeroshot ("DTD", device, args)
     
-    # Scaling used 
-    scaling = 0.3
 
-    # Initialize results dictionary
-    all_results = {}
-    all_results[scaling] = {
-        "Alpha used": scaling
-    }
-    
-    
-    for dataset_name in dataset_names:
-        print(f"Processing dataset: {dataset_name}")
+    for dataset in args.eval_datasets:
+        model = load_model(dataset, args)
+        model.to(device)
 
-        # Paths for pretrained and fine-tuned checkpoints
-        pt_path = f"/content/Model/Batch{args.batch_size}/zeroshot/{dataset_name}_zeroshot.pt"
-        ft_path = f"/content/Model/Batch{args.batch_size}/finetune/{dataset_name}_finetuned.pt"
+        if args.balanced:
+            train_loader = get_balanced_dataloader(dataset+'Val', model, args, is_train=True)
+            val_loader = get_balanced_dataloader(dataset+'Val', model, args, is_train=False)
+            test_loader = get_balanced_dataloader(dataset, model, args, is_train=False)
+        else:
+            train_loader = get_chosen_dataset(dataset+'Val', model, args, is_train=True)
+            val_loader = get_chosen_dataset(dataset+'Val', model, args, is_train=False)
+            test_loader = get_chosen_dataset(dataset, model, args, is_train=False)
+        if testing:
+            # Evaluate on training set
+            train_accuracy = evaluate_accuracy(model, train_loader, device)
+            # Evaluate on log FIM
+            samples_nr = 2000 # How many per-example gradients to accumulate
+            logdet_hF = train_diag_fim_logtr(args, model, dataset, samples_nr)        
 
-        # Load the fine-tuned encoder
-        task_vector = NonLinearTaskVector(pt_path, ft_path)
-        fine_tuned_encoder = task_vector.apply_to(pt_path, scaling)
+        val_accuracy = evaluate_accuracy(model, val_loader, device)
+        test_accuracy = evaluate_accuracy(model, test_loader, device)
 
-        # Load the classification head
-        classification_head = get_classification_head(args, dataset_name + "Val")
-        model = ImageClassifier(fine_tuned_encoder, classification_head).to(device)
-
-        # Obtain the Train split 
-        train_loader = get_split_loader(dataset_name, "Train", model, args=args)
-
-        # Obtain the Test split
-        test_loader = get_split_loader(dataset_name, "Test", model, args=args)
-
-        # Evaluate on train and test sets
-        train_accuracy = evaluate_model(model, train_loader, device, "Train")
-        # Compute logtr_hF
-        samples_nr = 2000  # Number of samples to accumulate gradients
-        logtr_hF = train_diag_fim_logtr(args, model, dataset_name, samples_nr)
-
-        test_accuracy = evaluate_model(model, test_loader, device, "Test")
-        
-        # Store results for the current dataset
-        all_results[dataset_name] = {
-            "Test": test_accuracy,
-            "Train": train_accuracy,
-            "LogTr_hF": logtr_hF
+        # Save results to JSON file
+        results = {
+            'validation_accuracy': val_accuracy,
+            'test_accuracy': test_accuracy
         }
 
-        print(f"Test Accuracy: {test_accuracy:.4f}")
-        print(f"Train Accuracy: {train_accuracy:.4f}")
-        print(f"LogTr_hF: {logtr_hF}")
+        if testing:
+            results = {
+                'test_accuracy': test_accuracy,
+                'validation_accuracy': val_accuracy,
+                'train_accuracy': train_accuracy,
+                'logdet_hF': logdet_hF
+            }
+        
+        # If evaluating merged_model
+        if args.merged:
+            with open(save_path+dataset+"_merged_results.json", 'w') as f:
+                json.dump(results, f, indent=4)
+        # If evaluating finetuned or alpha-scaled model
+        else:
+            with open(save_path+dataset+"_results.json", 'w') as f:
+                json.dump(results, f, indent=4)
 
-    # Save all results to JSON
-    save_path = f"{args.save}"  # Define the save path
-    output_file = f"{save_path}/eval_single_task_batch:{args.batch_size}_scaling:{scaling}.json"
-    with open(output_file, "w") as f:
-        json.dump(all_results, f, indent=4)
+        print(f"\nDataset: {dataset}")
+        if testing:
+            print(f"Training Accuracy: {train_accuracy:.4f}")
+            print(f"Logarithm of the diagonal Fisher Information Matrix trace: {logdet_hF}")
+        print(f"Validation Accuracy: {val_accuracy:.4f}")
+        print(f"Test Accuracy: {test_accuracy:.4f}\n")
 
-    print(f"Results saved in: {output_file}")
-
-# python eval_single_task.py --data-location /content/dataset/ --save /content/eval_all_datasets_result/ --batch-size 32

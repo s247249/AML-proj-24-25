@@ -1,91 +1,116 @@
 import torch
 import json
-import numpy as np
+import os
+
 from args import parse_arguments
-from datasets.registry import get_dataset
-from datasets.common import get_dataloader
+from utils import get_chosen_dataset, build_zeroshot, load_merged_encoder, evaluate_accuracy, find_best_alpha
 from modeling import ImageClassifier
 from heads import get_classification_head
-from task_vectors import NonLinearTaskVector
-from datasets.common import maybe_dictionarize
-from tqdm import tqdm
-import utils
 
 
+if __name__ == '__main__':
 
-if __name__ == "__main__":
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     args = parse_arguments()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Dataset names
-    dataset_names = ["DTD", "EuroSAT", "GTSRB", "MNIST", "RESISC45", "SVHN"]
+    datasets = [
+        "DTD",
+        "EuroSAT",
+        "GTSRB",
+        "MNIST",
+        "RESISC45",
+        "SVHN"
+        ]
 
-    # Paths for weights
-    base_path = f"/content/Model/Batch{args.batch_size}"
-    task_vectors = []
+    # json_dir = "/content/AML-proj-24-25/json_results"
+    # encoders_dir = "/content/AML-proj-24-25/encoders"
+    json_dir = "./json_results"
+    encoders_dir = "./encoders"
 
-    # # Load task vectors and compute fine-tuned accuracies
-    fine_tuned_accuracies_validation_split = {}
-    fine_tuned_accuracies_test_split = {}
-    fine_tuned_accuracies_train_split = {}
+    if not args.batch_size==32:
+        json_dir += "/bs_" + str(args.batch_size)
+        encoders_dir += "/bs_" + str(args.batch_size)
+    elif not args.lr==1e-4:
+        json_dir += "/lr_" + str(args.lr)
+        encoders_dir += "/lr_" + str(args.lr)
+    elif not args.wd==0.0:
+        json_dir += "/wd_" + str(args.wd)
+        encoders_dir += "/wd_" + str(args.wd)
+    elif args.balanced:
+        json_dir += "/balanced"
+        encoders_dir += "/balanced"
+    else:
+        json_dir += "/base"
+        encoders_dir += "/base"
 
+    json_dir += "/"
+    encoders_dir += "/"
 
-    # Initialize fine-tuned accuracies for testing
-    # fine_tuned_accuracies_validation_split = {name: 0.9 for name in dataset_names}  
-    # fine_tuned_accuracies_test_split = {name: 0.85 for name in dataset_names}    
-    # fine_tuned_accuracies_train_split = {name: 0.85 for name in dataset_names}   
-
-    # Creating the task vector list, the normal accuracy of the model on each dataset (relevant for computing the normal accuracy)
-    for dataset_name in dataset_names:
-        pt_path = f"{base_path}/zeroshot/{dataset_name}_zeroshot.pt"
-        ft_path = f"{base_path}/finetune/{dataset_name}_finetuned.pt"
-        task_vector = NonLinearTaskVector(pt_path, ft_path)
-        task_vectors.append(task_vector)
-
-        classification_head = get_classification_head(args, dataset_name + "Val")
-        model = ImageClassifier(task_vector.apply_to(pt_path, scaling_coef=1.0), classification_head).to(device)
-        
-        # Validation, Test and Train loader
-        validation_loader = utils.get_split_loader(dataset_name,"Validation", model,args=args)
-        test_loader = utils.get_split_loader(dataset_name,"Test",model, args=args)
-        train_loader = utils.get_split_loader(dataset_name,"Train",model, args=args)
+    results_dict = {}
 
 
-        fine_tuned_accuracies_validation_split[dataset_name] = utils.evaluate_model(model, validation_loader, device, split="Validation")
-        fine_tuned_accuracies_test_split[dataset_name] = utils.evaluate_model(model, test_loader, device, split="Test")
-        fine_tuned_accuracies_train_split[dataset_name] = utils.evaluate_model(model, train_loader, device, split="Train")
-          
+    # # rebuild zeroshot models (for colab)
+    # if not os.path.isfile("/content/AML-proj-24-25/encoders/zeroshot.pt"):
+    #     build_zeroshot (datasets[0], device, args)    
+    if not os.path.isfile("./encoders/zeroshot.pt"):
+        build_zeroshot (datasets[0], device, args)
 
-    # Find the best alpha
-    best_alpha, best_ana, alpha_results = utils.find_best_alpha(
-        task_vectors, dataset_names, fine_tuned_accuracies_validation_split,"Validation", args
-    )
-    # best_alpha, best_ana, alpha_results = 0.5, 0.95, [{"Alpha": 0.5, "Average Normalized Accuracy": 0.95}]
+    for dataset in datasets:
+        with open(json_dir + dataset +"_results.json", 'r') as f:
+            results = json.load(f)
+        results_dict[dataset] = results
 
-  
-    # Save alpha results
-    save_path = f"{args.save}"
-    alpha_results_file = f"{save_path}/alpha_results_task_addition_batch:{args.batch_size}_scale:{best_alpha}.json"
-    with open(alpha_results_file, "w") as f:
-        json.dump(alpha_results, f, indent=4)
-    print(f"Alpha results saved in: {alpha_results_file}")
 
-    # Evaluate on test split with the best alpha
-    test_results = utils.evaluate_on_split(best_alpha, task_vectors, dataset_names, fine_tuned_accuracies_test_split,"Test", args)
+    print("Searching for best alpha value")
+    alpha, avg_norm_acc = find_best_alpha(encoders_dir, results_dict, datasets, args, device)
+    avg_abs_accuracy = 0.0
 
-    # Save test results
-    test_results_file = f"{save_path}/test_results_task_addition_batch:{args.batch_size}_scale:{best_alpha}.json"
-    with open(test_results_file, "w") as f:
-        json.dump(test_results, f, indent=4)
-    print(f"Test results saved in: {test_results_file}")
 
-    # Evaluate on train split with the best alpha
-    train_results = utils.evaluate_on_split(best_alpha, task_vectors, dataset_names, fine_tuned_accuracies_train_split,"Train", args)
+    merged_encoder = load_merged_encoder(encoders_dir, alpha)
+    for dataset in datasets:
 
-    # Save test results
-    train_results_file = f"{save_path}/train_results_task_addition_batch:{args.batch_size}_scale:{best_alpha}.json"
-    with open(train_results_file, "w") as f:
-        json.dump(train_results, f, indent=4)
-    print(f"Test results saved in: {train_results_file}")
+        head = get_classification_head(args, dataset+"Val")
+        merged_model = ImageClassifier(merged_encoder, head)
+        merged_model.freeze_head()
+        merged_model.to(device)
 
-# python eval_task_addition.py --data-location /content/dataset/ --save /content/task_addition_result/ --batch-size 8
+        # load the dataset
+        test_loader = get_chosen_dataset(dataset, merged_model, args, is_train=False)
+        # evaluate accuracy for specific dataset
+        accuracy = evaluate_accuracy(merged_model, test_loader,  device)
+
+        avg_abs_accuracy += accuracy
+
+    avg_abs_accuracy = avg_abs_accuracy / len(datasets)
+
+    results = {
+        'alpha': alpha,
+        'avg_norm_acc': avg_norm_acc,
+        'avg_abs_accuracy': avg_abs_accuracy
+    }
+
+    with open(json_dir + "alpha_results.json", 'w') as f:
+        json.dump(results, f, indent=4)
+
+
+    # save_path = "/content/AML-proj-24-25/encoders"
+    save_path = "./encoders"
+
+    if not args.batch_size==32:
+        save_path += "/bs_" +str(args.batch_size)
+    elif not args.lr==1e-4:
+        save_path += "/lr_" + str(args.lr)
+    elif not args.wd==0.0:
+        save_path += "/wd_" + str(args.wd)
+    else:
+        save_path += "/base"
+    if not os.path.isdir(save_path):
+        os.makedirs(save_path, exist_ok=True)
+
+    merged_model.image_encoder.save(save_path + "/merged_model.pt")
+
+    print(f"{results}")
+
+
+
+

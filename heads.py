@@ -17,7 +17,7 @@ def build_classification_head(model, dataset_name, template, data_location, devi
     model.eval()
     model.to(device)
 
-    print("Building classification head.")
+    # print("Building classification head.")
     with torch.no_grad():
         zeroshot_weights = []
         for classname in tqdm(dataset.classnames):
@@ -53,12 +53,12 @@ def get_classification_head(args, dataset):
 
     filename = os.path.join(args.save, f"head_{dataset}.pt")
     if os.path.exists(filename):
-        print(f"Classification head for {args.model} on {dataset} exists at {filename}")
-        return modeling.ClassificationHead.load(filename)
-    print(
-        f"Did not find classification head for {args.model} on {dataset} at {filename}, building one from scratch."  # noqa: E501
-    )
-    model = modeling.ImageEncoder(args, keep_lang=True).model
+        # print(f"Classification head for {args.model} on {dataset} exists at {filename}")
+        return ClassificationHead.load(filename)
+    # print(
+    #     f"Did not find classification head for {args.model} on {dataset} at {filename}, building one from scratch."  # noqa: E501
+    # )
+    model = ImageEncoder(args, keep_lang=True).model
     template = get_templates(dataset)
     classification_head = build_classification_head(
         model, dataset, template, args.data_location, args.device
