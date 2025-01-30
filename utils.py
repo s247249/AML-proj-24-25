@@ -300,8 +300,6 @@ def find_best_alpha(encoders_dir, results_dict, datasets, args, device):
     best_alpha = -1.0
     best_avg_norm_accuracy = 0.0
     
-    
-    
     for alpha in np.arange(0.0, 1.05, 0.05):
         norm_accuracy = 0.0
         trunc_alpha = math.trunc(alpha*100) / 100
@@ -354,101 +352,6 @@ def get_balanced_dataloader(chosen_dataset, model, args, is_train=False):
         dataset_loader = rebalance_dataset(dataset.test_dataset, args, is_train)
 
     return dataset_loader
-
-
-# def rebalance_dataset(dataset, args, is_train=False):
-#     if isinstance(dataset, Subset):
-#         dataset = dataset.dataset
-
-#     # Some dataseets use ._samples instead of .sample
-#     if hasattr(dataset, '_samples'):
-#         samples_attr = '_samples'
-#     elif hasattr(dataset, 'samples'):
-#         samples_attr = 'samples'
-
-        
-        
-#     labels = [label for _, label in getattr(dataset, samples_attr)]
-#     class_counts = Counter(labels)
-    
-#     # Least represented class count
-#     min_count = min(class_counts.values())
-
-#     # Create a list of indices for rebalancing
-#     class_indices = {class_label: [] for class_label in class_counts}
-#     for idx, (_, label) in enumerate(getattr(dataset, samples_attr)):
-#         class_indices[label].append(idx)
-
-#     # Create a list to hold the new indices with balanced representation
-#     balanced_indices = []
-#     for class_label, indices in class_indices.items():
-#         # Take only `min_count` samples from this class (determinism)
-#         balanced_indices.extend(indices[:min_count])
-    
-#     if is_train:
-#         random.shuffle(balanced_indices)
-
-#     sampler = SubsetSampler(balanced_indices)
-#     dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, sampler=sampler)
-#     return dataloader
-
-
-
-# def rebalance_dataset(dataset, args, is_train=False):
-#     if isinstance(dataset, Subset):
-#         dataset = dataset.dataset
-
-#     # Handle datasets with different attribute names for samples
-#     if hasattr(dataset, '_samples'):
-#         samples_attr = '_samples'
-#     elif hasattr(dataset, 'samples'):
-#         samples_attr = 'samples'
-#     elif hasattr(dataset, 'data') and hasattr(dataset, 'targets'):  # Special case for MNIST
-#         samples_attr = 'mnist'
-#     else:
-#         raise AttributeError(f"Dataset does not have expected attributes for sample data.")
-    
-#     # If using MNIST, we use 'data' and 'targets' instead of 'samples'
-#     if samples_attr == 'mnist':
-#         data = dataset.data
-#         labels = dataset.targets
-#     else:
-#         data = getattr(dataset, samples_attr)
-#         labels = [label for _, label in data]
-
-#     # Ensure that labels are integers (this is important for consistency)
-#     if samples_attr == 'mnist':
-#         labels = labels.tolist()  # Convert tensor to a list of integers
-#     else:
-#         labels = [label for _, label in data]  # For other datasets, we already have this in list format
-
-#     class_counts = Counter(labels)
-    
-#     # Least represented class count
-#     min_count = min(class_counts.values())
-
-#     # Create a list of indices for rebalancing
-#     class_indices = {class_label: [] for class_label in class_counts}
-    
-#     if samples_attr == 'mnist':  # Special case for MNIST
-#         for idx, label in enumerate(labels):
-#             class_indices[label].append(idx)  # Here, label is already an int
-#     else:
-#         for idx, (_, label) in enumerate(data):
-#             class_indices[label].append(idx)
-
-#     # Create a list to hold the new indices with balanced representation
-#     balanced_indices = []
-#     for class_label, indices in class_indices.items():
-#         # Take only `min_count` samples from this class (determinism)
-#         balanced_indices.extend(indices[:min_count])
-    
-#     if is_train:
-#         random.shuffle(balanced_indices)
-
-#     sampler = SubsetSampler(balanced_indices)
-#     dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, sampler=sampler)
-#     return dataloader
 
 def rebalance_dataset(dataset, args, is_train=False):
     if isinstance(dataset, Subset):
