@@ -2,11 +2,11 @@ import os
 
 import open_clip
 import torch
-import modeling
 from tqdm.auto import tqdm
 
 from datasets.registry import get_dataset
 from datasets.templates import get_templates
+from modeling import ClassificationHead, ImageEncoder
 
 
 def build_classification_head(model, dataset_name, template, data_location, device):
