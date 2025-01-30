@@ -9,12 +9,12 @@ from utils import load_zeroshot, get_chosen_dataset, build_zeroshot, get_balance
 
 # Number of epochs for each dataset
 EPOCHS = {
-    # "DTD": 76,
-    # "EuroSAT": 12,
-    # "GTSRB": 11,
-    # "MNIST": 5,
+    "DTD": 76,
+    "EuroSAT": 12,
+    "GTSRB": 11,
+    "MNIST": 5,
     "RESISC45": 15,
-    # "SVHN": 4,
+    "SVHN": 4,
 }
 
 # Fine-tuning function
